@@ -209,13 +209,14 @@ class AdvectionTimestepper(BaseTimestepper):
 
 class AdvectionManager(object):
     def __init__(self, xn, xnp1, xstar_fields, xp_fields,
-                 advection_dict, timestepping):
+                 advection_dict, timestepping, state):
         self.xn = xn
         self.xnp1 = xnp1
         self.xstar_fields = xstar_fields
         self.xp_fields = xp_fields
         self.advection_dict = advection_dict
         self.timestepping = timestepping
+        self.state = state
 
     def apply(self):
         for field in fieldlist:
