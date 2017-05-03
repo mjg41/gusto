@@ -83,11 +83,10 @@ class Timestepper(BaseTimestepper):
                      zip(state.fieldlist, state.xp.split())}
         # list of fields that are passively advected (and possibly diffused)
         passive_fieldlist = [name for name in self.advection_dict.keys() if name not in state.fieldlist]
-        # list of fields that are advected as part of the nonlinear iteration
-        fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
 
-        Advection = AdvectionManager(xn, xnp1, xstar_fields, xp_fields,
-                 advection_dict, timestepping)
+        Advection = AdvectionManager(
+            state.xn, state.xnp1, xstar_fields, xp_fields,
+            self.advection_dict, state.timestepping)
 
         dt = state.timestepping.dt
         alpha = state.timestepping.alpha
@@ -207,9 +206,12 @@ class AdvectionTimestepper(BaseTimestepper):
         if x_end is not None:
             return {field: getattr(state.fields, field) for field in x_end}
 
+
 class AdvectionManager(object):
     def __init__(self, xn, xnp1, xstar_fields, xp_fields,
                  advection_dict, timestepping, state):
+        # list of fields that are advected as part of the nonlinear iteration
+        self.fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
         self.xn = xn
         self.xnp1 = xnp1
         self.xstar_fields = xstar_fields
@@ -219,7 +221,7 @@ class AdvectionManager(object):
         self.state = state
 
     def apply(self):
-        for field in fieldlist:
+        for field in self.fieldlist:
             advection = self.advection_dict[field]
             # first computes ubar from state.xn and state.xnp1
             un = self.xn.split()[0]
