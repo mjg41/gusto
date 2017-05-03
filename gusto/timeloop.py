@@ -84,12 +84,16 @@ class Timestepper(BaseTimestepper):
         # list of fields that are passively advected (and possibly diffused)
         passive_fieldlist = [name for name in self.advection_dict.keys() if name not in state.fieldlist]
 
-        Advection = AdvectionManager(
-            state.xn, state.xnp1, xstar_fields, xp_fields,
-            self.advection_dict, state.timestepping)
-
         dt = state.timestepping.dt
         alpha = state.timestepping.alpha
+        # list of fields that are advected as part of the nonlinear iteration
+        fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
+
+        Advection = AdvectionManager(
+            fieldlist,
+            state.xn, state.xnp1, xstar_fields, xp_fields,
+            self.advection_dict, alpha)
+
         if state.mu is not None:
             mu_alpha = [0., dt]
         else:
@@ -208,25 +212,22 @@ class AdvectionTimestepper(BaseTimestepper):
 
 
 class AdvectionManager(object):
-    def __init__(self, xn, xnp1, xstar_fields, xp_fields,
-                 advection_dict, timestepping, state):
-        # list of fields that are advected as part of the nonlinear iteration
-        self.fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
+    def __init__(self, fieldlist, xn, xnp1, xstar_fields, xp_fields,
+                 advection_dict, alpha):
+        self.fieldlist = fieldlist
         self.xn = xn
         self.xnp1 = xnp1
         self.xstar_fields = xstar_fields
         self.xp_fields = xp_fields
         self.advection_dict = advection_dict
-        self.timestepping = timestepping
-        self.state = state
+        self.alpha = alpha
 
     def apply(self):
         for field in self.fieldlist:
             advection = self.advection_dict[field]
-            # first computes ubar from state.xn and state.xnp1
+            # first computes ubar from xn and xnp1
             un = self.xn.split()[0]
             unp1 = self.xnp1.split()[0]
-            alpha = self.timestepping.alpha
-            advection.update_ubar(un + alpha*(unp1-un))
+            advection.update_ubar(un + self.alpha*(unp1-un))
             # advects a field from xstar and puts result in xp
             advection.apply(self.xstar_fields[field], self.xp_fields[field])
