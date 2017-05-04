@@ -20,6 +20,15 @@ class BaseTimestepper(object):
 
         self.state = state
         self.advection_dict = advection_dict
+        self.dt = state.timestepping.dt
+
+        # list of fields that are advected as part of the nonlinear iteration
+        fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
+
+        self.Advection = AdvectionManager(
+            fieldlist,
+            state.xn, state.xnp1,
+            advection_dict, state.timestepping.alpha)
 
     def _apply_bcs(self):
         """
@@ -84,15 +93,8 @@ class Timestepper(BaseTimestepper):
         # list of fields that are passively advected (and possibly diffused)
         passive_fieldlist = [name for name in self.advection_dict.keys() if name not in state.fieldlist]
 
-        dt = state.timestepping.dt
+        dt = self.dt
         alpha = state.timestepping.alpha
-        # list of fields that are advected as part of the nonlinear iteration
-        fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
-
-        Advection = AdvectionManager(
-            fieldlist,
-            state.xn, state.xnp1, xstar_fields, xp_fields,
-            self.advection_dict, alpha)
 
         if state.mu is not None:
             mu_alpha = [0., dt]
@@ -117,7 +119,7 @@ class Timestepper(BaseTimestepper):
             for k in range(state.timestepping.maxk):
 
                 with timed_stage("Advection"):
-                    Advection.apply()
+                    self.Advection.apply(xstar_fields, xp_fields)
 
                 state.xrhs.assign(0.)  # xrhs is the residual which goes in the linear solve
 
@@ -177,8 +179,9 @@ class AdvectionTimestepper(BaseTimestepper):
     def run(self, t, tmax, x_end=None):
         state = self.state
 
-        dt = state.timestepping.dt
-        state.xnp1.assign(state.xn)
+        dt = self.dt
+        xn_fields = {name: func for (name, func) in
+                     zip(state.fieldlist, state.xn.split())}
 
         with timed_stage("Dump output"):
             state.setup_dump()
@@ -191,12 +194,7 @@ class AdvectionTimestepper(BaseTimestepper):
             t += dt
 
             with timed_stage("Advection"):
-                for name, advection in self.advection_dict.iteritems():
-                    field = getattr(state.fields, name)
-                    # first computes ubar from state.xn and state.xnp1
-                    advection.update_ubar(state.xn, state.xnp1, state.timestepping.alpha)
-                    # advects field
-                    advection.apply(field, field)
+                self.Advection.apply(xn_fields, xn_fields)
 
             with timed_stage("Physics"):
                 for physics in self.physics_list:
@@ -212,22 +210,19 @@ class AdvectionTimestepper(BaseTimestepper):
 
 
 class AdvectionManager(object):
-    def __init__(self, fieldlist, xn, xnp1, xstar_fields, xp_fields,
-                 advection_dict, alpha):
+    def __init__(self, fieldlist, xn, xnp1, advection_dict, alpha):
         self.fieldlist = fieldlist
         self.xn = xn
         self.xnp1 = xnp1
-        self.xstar_fields = xstar_fields
-        self.xp_fields = xp_fields
         self.advection_dict = advection_dict
         self.alpha = alpha
 
-    def apply(self):
+    def apply(self, x_in, x_out):
         for field in self.fieldlist:
             advection = self.advection_dict[field]
             # first computes ubar from xn and xnp1
             un = self.xn.split()[0]
             unp1 = self.xnp1.split()[0]
             advection.update_ubar(un + self.alpha*(unp1-un))
-            # advects a field from xstar and puts result in xp
-            advection.apply(self.xstar_fields[field], self.xp_fields[field])
+            # advects field
+            advection.apply(x_in[field], x_out[field])
