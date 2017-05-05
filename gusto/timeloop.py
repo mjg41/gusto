@@ -218,8 +218,7 @@ class AdvectionManager(object):
         self.alpha = alpha
 
     def apply(self, x_in, x_out):
-        for field in self.fieldlist:
-            advection = self.advection_dict[field]
+        for field, advection in self.advection_dict.iteritems():
             # first computes ubar from xn and xnp1
             un = self.xn.split()[0]
             unp1 = self.xnp1.split()[0]
