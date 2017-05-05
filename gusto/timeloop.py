@@ -192,6 +192,7 @@ class AdvectionTimestepper(BaseTimestepper):
                 print "STEP", t, dt
 
             t += dt
+            state.xnp1.assign(state.xn)
 
             with timed_stage("Advection"):
                 self.Advection.apply(xn_fields, xn_fields)
