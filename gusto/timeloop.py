@@ -229,12 +229,12 @@ class AdvectionStep(object):
 
     def apply(self, x_in, x_out):
 
+        un = self.xn.split()[0]
+        unp1 = self.xnp1.split()[0]
+
         # Update ubar for each advection object
         for field, advection in self.advection_dict.iteritems():
-            un = self.xn.split()[0]
-            unp1 = self.xnp1.split()[0]
-
-            advection.update_ubar(un + self.alpha*(unp1-un))
+            advection.update_ubar((1 - self.alpha)*un + self.alpha*unp1)
 
         # Advect fields
         for field, advection in self.advection_dict.iteritems():
