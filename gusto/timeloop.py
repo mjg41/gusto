@@ -25,7 +25,7 @@ class BaseTimestepper(object):
         # list of fields that are advected as part of the nonlinear iteration
         fieldlist = [name for name in self.advection_dict.keys() if name in state.fieldlist]
 
-        self.Advection = AdvectionManager(
+        self.Advection = AdvectionStep(
             fieldlist,
             state.xn, state.xnp1,
             advection_dict, state.timestepping.alpha)
@@ -210,7 +210,7 @@ class AdvectionTimestepper(BaseTimestepper):
             return {field: getattr(state.fields, field) for field in x_end}
 
 
-class AdvectionManager(object):
+class AdvectionStep(object):
     def __init__(self, fieldlist, xn, xnp1, advection_dict, alpha):
         self.fieldlist = fieldlist
         self.xn = xn
