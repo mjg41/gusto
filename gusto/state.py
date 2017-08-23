@@ -191,7 +191,7 @@ class State(object):
                  fieldlist=None,
                  diagnostic_fields=None):
 
-        self.Omega = Coriolis
+        self.Coriolis = Coriolis
         self.mu = sponge_function
         self.timestepping = timestepping
         if output is None:

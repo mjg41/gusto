@@ -1,7 +1,6 @@
 from os import path
 from gusto import *
-from firedrake import IcosahedralSphereMesh, SpatialCoordinate, as_vector, \
-    FunctionSpace, Function
+from firedrake import IcosahedralSphereMesh, SpatialCoordinate, as_vector
 from math import pi
 from netCDF4 import Dataset
 
@@ -23,21 +22,18 @@ def setup_sw(dirname):
     output = OutputParameters(dirname=dirname+"/sw_linear_w2", steady_state_error_fields=['u', 'D'], dumpfreq=12)
     parameters = ShallowWaterParameters(H=H)
     diagnostics = Diagnostics(*fieldlist)
+    # Coriolis
+    Omega = parameters.Omega
+    fexpr = 2*Omega*x[2]/R
 
     state = State(mesh, horizontal_degree=1,
                   family="BDM",
+                  Coriolis=fexpr,
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
                   diagnostics=diagnostics,
                   fieldlist=fieldlist)
-
-    # Coriolis
-    Omega = parameters.Omega
-    fexpr = 2*Omega*x[2]/R
-    V = FunctionSpace(mesh, "CG", 1)
-    f = state.fields("coriolis", Function(V))
-    f.interpolate(fexpr)  # Coriolis frequency (1/s)
 
     # interpolate initial conditions
     # Initial/current conditions

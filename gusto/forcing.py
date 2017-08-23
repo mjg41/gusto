@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from firedrake import Function, split, TrialFunction, TestFunction, \
     FacetNormal, inner, dx, cross, div, jump, avg, dS_v, \
     DirichletBC, LinearVariationalProblem, LinearVariationalSolver, \
-    dot, dS, Constant, warning, as_vector, SpatialCoordinate
+    dot, dS, Constant, warning, as_vector, SpatialCoordinate, Function, FunctionSpace
 
 
 __all__ = ["CompressibleForcing", "IncompressibleForcing", "EadyForcing", "CompressibleEadyForcing", "ShallowWaterForcing", "exner", "exner_rho", "exner_theta"]
@@ -42,7 +42,7 @@ class Forcing(object, metaclass=ABCMeta):
 
         # find out which terms we need
         self.extruded = self.Vu.extruded
-        self.coriolis = state.Omega is not None or hasattr(state.fields, "coriolis")
+        self.coriolis = state.Coriolis is not None
         self.sponge = state.mu is not None
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
@@ -59,7 +59,7 @@ class Forcing(object, metaclass=ABCMeta):
 
     def coriolis_term(self):
         u0 = split(self.x0)[0]
-        return -inner(self.test, cross(2*self.state.Omega, u0))*dx
+        return -inner(self.test, cross(2*self.state.Coriolis, u0))*dx
 
     def sponge_term(self):
         u0 = split(self.x0)[0]
@@ -384,9 +384,12 @@ class ShallowWaterForcing(Forcing):
 
     def coriolis_term(self):
 
-        f = self.state.fields("coriolis")
+        f = self.state.Coriolis
+        fs = FunctionSpace(self.state.mesh, "CG", 1)
+        fn = Function(fs).interpolate(f)
+        print(fn.dat.data.min(), fn.dat.data.max())
         u0, _ = split(self.x0)
-        L = -f*inner(self.test, self.state.perp(u0))*dx
+        L = -fn*inner(self.test, self.state.perp(u0))*dx
         return L
 
     def pressure_gradient_term(self):

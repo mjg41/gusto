@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import IcosahedralSphereMesh, SpatialCoordinate, as_vector, \
-    FunctionSpace
+from firedrake import IcosahedralSphereMesh, SpatialCoordinate, as_vector
 from math import pi
 import sys
 
@@ -33,9 +32,13 @@ for ref_level, dt in ref_dt.items():
 
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumplist_latlon=['D', 'D_error'], steady_state_error_fields=['D', 'u'])
+    # Coriolis
+    Omega = parameters.Omega
+    fexpr = 2*Omega*x[2]/R
 
     state = State(mesh, horizontal_degree=1,
                   family="BDM",
+                  Coriolis=fexpr,
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
@@ -48,14 +51,8 @@ for ref_level, dt in ref_dt.items():
     x = SpatialCoordinate(mesh)
     u_max = 2*pi*R/(12*day)  # Maximum amplitude of the zonal wind (m/s)
     uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
-    Omega = parameters.Omega
     g = parameters.g
     Dexpr = H - ((R * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R*R)))/g
-    # Coriolis expression
-    fexpr = 2*Omega*x[2]/R
-    V = FunctionSpace(mesh, "CG", 1)
-    f = state.fields("coriolis", V)
-    f.interpolate(fexpr)  # Coriolis frequency (1/s)
 
     u0.project(uexpr)
     D0.interpolate(Dexpr)
