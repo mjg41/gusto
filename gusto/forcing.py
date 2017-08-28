@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from firedrake import Function, split, TrialFunction, TestFunction, \
     FacetNormal, inner, dx, cross, div, jump, avg, dS_v, \
     DirichletBC, LinearVariationalProblem, LinearVariationalSolver, \
-    dot, dS, Constant, warning, as_vector, SpatialCoordinate, Function, FunctionSpace
+    dot, dS, Constant, warning, as_vector, SpatialCoordinate, FunctionSpace
 
 
 __all__ = ["CompressibleForcing", "IncompressibleForcing", "EadyForcing", "CompressibleEadyForcing", "ShallowWaterForcing", "exner", "exner_rho", "exner_theta"]
@@ -385,11 +385,12 @@ class ShallowWaterForcing(Forcing):
     def coriolis_term(self):
 
         f = self.state.Coriolis
-        fs = FunctionSpace(self.state.mesh, "CG", 1)
-        fn = Function(fs).interpolate(f)
-        print(fn.dat.data.min(), fn.dat.data.max())
+        # fs = FunctionSpace(self.state.mesh, "CG", 1)
+        # fn = Function(fs).interpolate(f)
+        # print(fn.dat.data.min(), fn.dat.data.max())
         u0, _ = split(self.x0)
-        L = -fn*inner(self.test, self.state.perp(u0))*dx
+        L = -f*inner(self.test, self.state.perp(u0))*dx
+        # L = -fn*inner(self.test, self.state.perp(u0))*dx
         return L
 
     def pressure_gradient_term(self):
