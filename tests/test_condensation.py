@@ -1,7 +1,7 @@
 from os import path
 from gusto import *
-from firedrake import as_vector, Constant, sin, PeriodicIntervalMesh, \
-    SpatialCoordinate, ExtrudedMesh, FunctionSpace, Function, sqrt, \
+from firedrake import as_vector, Constant, sin, \
+    SpatialCoordinate, FunctionSpace, Function, sqrt, \
     conditional, cos
 from netCDF4 import Dataset
 from math import pi
@@ -19,10 +19,8 @@ def setup_condens(dirname):
     nlayers = int(H / 100.)
     ncolumns = int(L / 100.)
 
-    # make mesh
-    m = PeriodicIntervalMesh(ncolumns, L)
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=(H / nlayers))
-    x = SpatialCoordinate(mesh)
+    # make domain
+    domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=1.0, maxk=4, maxi=1)
@@ -32,7 +30,8 @@ def setup_condens(dirname):
                               perturbation_fields=['theta', 'rho'])
     parameters = CompressibleParameters()
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
@@ -46,6 +45,7 @@ def setup_condens(dirname):
     theta0 = state.fields("theta")
 
     # spaces
+    mesh = domain.mesh
     Vpsi = FunctionSpace(mesh, "CG", 2)
     Vt = theta0.function_space()
     Vr = rho0.function_space()
@@ -68,6 +68,7 @@ def setup_condens(dirname):
                                      solve_for_rho=True)
 
     # set up water_v
+    x = SpatialCoordinate(mesh)
     xc = 500.
     zc = 350.
     rc = 250.
@@ -97,9 +98,7 @@ def setup_condens(dirname):
 
     # set up advection schemes
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-    thetaeqn = SUPGAdvection(state, Vt,
-                             supg_params={"dg_direction": "horizontal"},
-                             equation_form="advective")
+    thetaeqn = SUPGAdvection(state, Vt, equation_form="advective")
 
     # build advection dictionary
     advected_fields = []

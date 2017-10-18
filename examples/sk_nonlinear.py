@@ -1,7 +1,6 @@
 from gusto import *
 import itertools
-from firedrake import as_vector, SpatialCoordinate, PeriodicIntervalMesh, \
-    ExtrudedMesh, exp, sin, Function
+from firedrake import as_vector, SpatialCoordinate, exp, sin, Function
 import numpy as np
 import sys
 
@@ -11,14 +10,9 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 3600.
 
-nlayers = 10  # horizontal layers
-columns = 150  # number of columns
 L = 3.0e5
-m = PeriodicIntervalMesh(columns, L)
-
-# build volume mesh
-H = 1.0e4  # Height position of the model top
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+H = 1.0e4
+domain = VerticalSliceDomain(L=L, H=H, columns=150, nlayers=10)
 
 points_x = np.linspace(0., L, 100)
 points_z = [H/2.]
@@ -30,15 +24,13 @@ output = OutputParameters(dirname='sk_nonlinear', dumpfreq=1, dumplist=['u'],
                           perturbation_fields=['theta', 'rho'],
                           point_data=[('theta_perturbation', points)])
 parameters = CompressibleParameters()
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain, vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -61,7 +53,7 @@ c_p = parameters.cp
 R_d = parameters.R_d
 kappa = parameters.kappa
 
-x, z = SpatialCoordinate(mesh)
+x, z = SpatialCoordinate(domain.mesh)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = 300.
@@ -91,7 +83,7 @@ ueqn = EulerPoincare(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
 supg = True
 if supg:
-    thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"}, equation_form="advective")
+    thetaeqn = SUPGAdvection(state, Vt, equation_form="advective")
 else:
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
 advected_fields = []

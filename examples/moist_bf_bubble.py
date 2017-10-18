@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, conditional, cos, pi, sqrt, exp, NonlinearVariationalProblem, \
+from firedrake import SpatialCoordinate, conditional, cos, pi, sqrt, exp, NonlinearVariationalProblem, \
     NonlinearVariationalSolver, TestFunction, dx, TrialFunction, Constant, Function, \
     LinearVariationalProblem, LinearVariationalSolver, DirichletBC
 import sys
@@ -18,23 +17,21 @@ H = 10000.
 nlayers = int(H/deltax)
 ncolumns = int(L/deltax)
 
-m = PeriodicIntervalMesh(ncolumns, L)
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
 diffusion = True
 
 fieldlist = ['u', 'rho', 'theta']
-timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
+timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='moist_bf', dumpfreq=20, dumplist=['u'], perturbation_fields=[])
 params = CompressibleParameters()
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [Theta_e()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
               parameters=params,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -50,7 +47,7 @@ moisture = ["water_v", "water_c"]
 Vu = u0.function_space()
 Vt = theta0.function_space()
 Vr = rho0.function_space()
-x = SpatialCoordinate(mesh)
+x = SpatialCoordinate(domain.mesh)
 quadrature_degree = (5, 5)
 dxp = dx(degree=(quadrature_degree))
 

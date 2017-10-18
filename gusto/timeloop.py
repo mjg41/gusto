@@ -31,13 +31,13 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         """
         unp1 = self.state.xnp1.split()[0]
 
-        if unp1.function_space().extruded:
-            M = unp1.function_space()
-            bcs = [DirichletBC(M, 0.0, "bottom"),
-                   DirichletBC(M, 0.0, "top")]
+        M = unp1.function_space()
+        bcs = []
+        for bc_id in self.state.physical_domain.boundary_ids:
+            bcs.append(DirichletBC(M, 0.0, bc_id))
 
-            for bc in bcs:
-                bc.apply(unp1)
+        for bc in bcs:
+            bc.apply(unp1)
 
     @abstractmethod
     def run(self):

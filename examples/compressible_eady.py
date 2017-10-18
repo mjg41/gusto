@@ -1,6 +1,5 @@
 from gusto import *
 from firedrake import as_vector, SpatialCoordinate,\
-    PeriodicRectangleMesh, ExtrudedMesh, \
     exp, cos, sin, cosh, sinh, tanh, pi, Function, sqrt
 import sys
 
@@ -15,24 +14,17 @@ else:
     tdump = 2*hour
 
 ##############################################################################
-# set up mesh
+# set up domain
 ##############################################################################
-# Construct 1d periodic base mesh
 columns = 30  # number of columns
 L = 1000000.
-m = PeriodicRectangleMesh(columns, 1, 2.*L, 1.e5, quadrilateral=True)
-
-# build 2D mesh by extruding the base mesh
 nlayers = 30  # horizontal layers
-H = 10000.  # Height position of the model top
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+H = 10000.
+domain = VerticalSliceDomain(2.*L, H, columns, nlayers, is_rotating=True)
 
 ##############################################################################
 # set up all the other things that state requires
 ##############################################################################
-# Coriolis expression
-f = 1.e-04
-Omega = as_vector([0., 0., f*0.5])
 
 # list of prognostic fieldnames
 # this is passed to state and used to construct a dictionary,
@@ -58,12 +50,7 @@ output = OutputParameters(dirname='compressible_eady',
 # class containing physical parameters
 # all values not explicitly set here use the default values provided
 # and documented in configuration.py
-parameters = CompressibleEadyParameters(H=H, f=f)
-
-# class for diagnostics
-# fields passed to this class will have basic diagnostics computed
-# (eg min, max, l2 norm) and these will be output as a json file
-diagnostics = Diagnostics(*fieldlist)
+parameters = CompressibleEadyParameters(H=H)
 
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber(), VelocityY(),
@@ -78,13 +65,12 @@ diagnostic_fields = [CourantNumber(), VelocityY(),
 
 # setup state, passing in the mesh, information on the required finite element
 # function spaces and the classes above
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="RTCF",
-              Coriolis=Omega,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -104,7 +90,7 @@ Vr = rho0.function_space()
 # z.grad(bref) = N**2
 # the following is symbolic algebra, using the default buoyancy frequency
 # from the parameters class.
-x, y, z = SpatialCoordinate(mesh)
+x, y, z = SpatialCoordinate(domain.mesh)
 g = parameters.g
 Nsq = parameters.Nsq
 theta_surf = parameters.theta_surf
@@ -149,6 +135,7 @@ state.parameters.Pi0 = Pi0
 cp = state.parameters.cp
 dthetady = state.parameters.dthetady
 Pi = exner(theta0, rho0, state)
+f = parameters.f
 u = cp*dthetady/f*(Pi-Pi0)
 
 # set y component of velocity
@@ -174,7 +161,7 @@ state.set_reference_profiles([('rho', rho_b),
 # we need a DG funciton space for the embedded DG advection scheme
 ueqn = AdvectionEquation(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"})
+thetaeqn = SUPGAdvection(state, Vt)
 
 advected_fields = []
 advected_fields.append(("u", SSPRK3(state, u0, ueqn)))

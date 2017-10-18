@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, exp, sin, Function, FunctionSpace
+from firedrake import SpatialCoordinate, exp, sin, Function, FunctionSpace
 import numpy as np
 import sys
 
@@ -13,18 +12,17 @@ else:
 nlayers = 50  # horizontal layers
 columns = 50  # number of columns
 L = 3.0e5
-m = PeriodicIntervalMesh(columns, L)
-
-# build volume mesh
 H = 1.0e4  # Height position of the model top
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+
+domain = VerticalSliceDomain(L, H, columns, nlayers)
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sk_linear', dumplist=['u'], perturbation_fields=['theta', 'rho'])
 parameters = CompressibleParameters()
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
@@ -50,6 +48,7 @@ c_p = parameters.cp
 R_d = parameters.R_d
 kappa = parameters.kappa
 
+mesh = domain.mesh
 x, z = SpatialCoordinate(mesh)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)

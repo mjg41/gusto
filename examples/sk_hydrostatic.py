@@ -1,6 +1,6 @@
 from gusto import *
 from firedrake import as_vector, SpatialCoordinate,\
-    PeriodicRectangleMesh, ExtrudedMesh, exp, sin, Function
+    exp, sin, Function
 import numpy as np
 import sys
 
@@ -15,28 +15,21 @@ else:
     tmax = 60000.0
 
 L = 6.0e6
-m = PeriodicRectangleMesh(columns, 1, L, 1.e4, quadrilateral=True)
-
-# build volume mesh
 H = 1.0e4  # Height position of the model top
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+domain = VerticalSliceDomain(L, H, columns, nlayers, is_rotating=True)
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sk_hydrostatic', dumpfreq=50, dumplist=['u'], perturbation_fields=['theta', 'rho'])
 parameters = CompressibleParameters()
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber()]
 
-Omega = as_vector((0., 0., 0.5e-4))
-
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="RTCF",
-              Coriolis=Omega,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -59,7 +52,7 @@ c_p = parameters.cp
 R_d = parameters.R_d
 kappa = parameters.kappa
 
-x, y, z = SpatialCoordinate(mesh)
+x, y, z = SpatialCoordinate(domain.mesh)
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = 300.
@@ -86,7 +79,7 @@ state.set_reference_profiles([('rho', rho_b),
 # Set up advection schemes
 ueqn = EulerPoincare(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"})
+thetaeqn = SUPGAdvection(state, Vt)
 advected_fields = []
 advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
 advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))

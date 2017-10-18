@@ -1,6 +1,6 @@
 from gusto import *
-from firedrake import IcosahedralSphereMesh, SpatialCoordinate, \
-    as_vector, pi, sqrt, Min, FunctionSpace
+from firedrake import SpatialCoordinate, \
+    as_vector, pi, sqrt, Min
 import sys
 
 day = 24.*60.*60.
@@ -19,21 +19,17 @@ H = 5960.
 # setup input that doesn't change with ref level or dt
 fieldlist = ['u', 'D']
 parameters = ShallowWaterParameters(H=H)
-diagnostics = Diagnostics(*fieldlist)
 
 for ref_level, dt in ref_dt.items():
 
     dirname = "sw_W5_ref%s_dt%s" % (ref_level, dt)
-    mesh = IcosahedralSphereMesh(radius=R,
-                                 refinement_level=ref_level, degree=3)
-    x = SpatialCoordinate(mesh)
-    mesh.init_cell_orientations(x)
+    domain = SphericalDomain(radius=R, refinement_level=ref_level)
 
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumplist_latlon=['D'], dumpfreq=100)
     diagnostic_fields = [Sum('D', 'topography')]
 
-    state = State(mesh, horizontal_degree=1,
+    state = State(domain, horizontal_degree=1,
                   family="BDM",
                   timestepping=timestepping,
                   output=output,
@@ -44,10 +40,10 @@ for ref_level, dt in ref_dt.items():
     # interpolate initial conditions
     u0 = state.fields('u')
     D0 = state.fields('D')
-    x = SpatialCoordinate(mesh)
+    x = SpatialCoordinate(domain.mesh)
     u_max = 20.   # Maximum amplitude of the zonal wind (m/s)
     uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
-    theta, lamda = latlon_coords(mesh)
+    theta, lamda = latlon_coords(domain.mesh)
     Omega = parameters.Omega
     g = parameters.g
     Rsq = R**2
@@ -62,11 +58,6 @@ for ref_level, dt in ref_dt.items():
     bexpr = 2000 * (1 - r/R0)
     Dexpr = H - ((R * Omega * u_max + 0.5*u_max**2)*x[2]**2/Rsq)/g - bexpr
 
-    # Coriolis
-    fexpr = 2*Omega*x[2]/R
-    V = FunctionSpace(mesh, "CG", 1)
-    f = state.fields("coriolis", V)
-    f.interpolate(fexpr)  # Coriolis frequency (1/s)
     b = state.fields("topography", D0.function_space())
     b.interpolate(bexpr)
 

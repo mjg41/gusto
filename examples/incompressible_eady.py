@@ -1,6 +1,5 @@
 from gusto import *
 from firedrake import as_vector, SpatialCoordinate, \
-    PeriodicRectangleMesh, ExtrudedMesh, \
     cos, sin, cosh, sinh, tanh, pi, Function, sqrt
 import sys
 
@@ -34,24 +33,18 @@ columns = 30
 nlayers = 30
 H = 10000.
 L = 1000000.
-f = 1.e-04
 
 # rescaling
+f = 1.e-04
 beta = 1.0
 f = f/beta
 L = beta*L
 
-# Construct 2D periodic base mesh
-m = PeriodicRectangleMesh(columns, 1, 2.*L, 1.e5, quadrilateral=True)
-
-# build 3D mesh by extruding the base mesh
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+domain = VerticalSliceDomain(2.*L, H, columns, nlayers, is_rotating=True)
 
 ##############################################################################
 # set up all the other things that state requires
 ##############################################################################
-# Coriolis expression
-Omega = as_vector([0., 0., f*0.5])
 
 # list of prognostic fieldnames
 # this is passed to state and used to construct a dictionary,
@@ -77,15 +70,10 @@ output = OutputParameters(dirname='incompressible_eady',
 # class containing physical parameters
 # all values not explicitly set here use the default values provided
 # and documented in configuration.py
-parameters = EadyParameters(H=H, L=L, f=f,
+parameters = EadyParameters(H=H, L=L,
                             deltax=2.*L/float(columns),
                             deltaz=H/float(nlayers),
                             fourthorder=True)
-
-# class for diagnostics
-# fields passed to this class will have basic diagnostics computed
-# (eg min, max, l2 norm) and these will be output as a json file
-diagnostics = Diagnostics(*fieldlist)
 
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber(), VelocityY(),
@@ -97,13 +85,12 @@ diagnostic_fields = [CourantNumber(), VelocityY(),
 
 # setup state, passing in the mesh, information on the required finite element
 # function spaces and the classes above
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="RTCF",
-              Coriolis=Omega,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -120,7 +107,7 @@ Vb = b0.function_space()
 Vp = p0.function_space()
 
 # parameters
-x, y, z = SpatialCoordinate(mesh)
+x, y, z = SpatialCoordinate(domain.mesh)
 Nsq = parameters.Nsq
 
 # background buoyancy
@@ -184,7 +171,6 @@ ueqn = AdvectionEquation(state, Vu)
 supg = True
 if supg:
     beqn = SUPGAdvection(state, Vb,
-                         supg_params={"dg_direction": "horizontal"},
                          equation_form="advective")
 else:
     beqn = EmbeddedDGAdvection(state, Vb,

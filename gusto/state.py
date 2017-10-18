@@ -7,9 +7,8 @@ from gusto.diagnostics import Diagnostics, Perturbation, \
 from firedrake import FiniteElement, TensorProductElement, HDiv, \
     FunctionSpace, MixedFunctionSpace, VectorFunctionSpace, \
     interval, Function, Mesh, functionspaceimpl,\
-    File, SpatialCoordinate, sqrt, Constant, inner, \
-    dx, op2, par_loop, READ, WRITE, DumbCheckpoint, \
-    FILE_CREATE, FILE_READ, interpolate, CellNormal, cross, as_vector
+    File, Constant, dx, op2, par_loop, READ, WRITE, DumbCheckpoint, \
+    FILE_CREATE, FILE_READ
 import numpy as np
 
 
@@ -172,7 +171,6 @@ class State(object):
     "RT": The Raviart-Thomas family (default, recommended for quads)
     "BDM": The BDM family
     "BDFM": The BDFM family
-    :arg Coriolis: (optional) Coriolis function.
     :arg sponge_function: (optional) Function specifying a sponge layer.
     :arg timestepping: class containing timestepping parameters
     :arg output: class containing output parameters
@@ -182,9 +180,10 @@ class State(object):
     :arg diagnostic_fields: list of diagnostic field classes
     """
 
-    def __init__(self, mesh, vertical_degree=None, horizontal_degree=1,
+    def __init__(self, physical_domain,
+                 vertical_degree=None, horizontal_degree=1,
                  family="RT",
-                 Coriolis=None, sponge_function=None,
+                 sponge_function=None,
                  timestepping=None,
                  output=None,
                  parameters=None,
@@ -192,7 +191,7 @@ class State(object):
                  fieldlist=None,
                  diagnostic_fields=None):
 
-        self.Omega = Coriolis
+        self.physical_domain = physical_domain
         self.mu = sponge_function
         self.timestepping = timestepping
         if output is None:
@@ -214,10 +213,10 @@ class State(object):
             self.diagnostic_fields = []
 
         # The mesh
-        self.mesh = mesh
+        self.mesh = physical_domain.mesh
 
         # Build the spaces
-        self._build_spaces(mesh, vertical_degree, horizontal_degree, family)
+        self._build_spaces(self.mesh, vertical_degree, horizontal_degree, family)
 
         # Allocate state
         self._allocate_state()
@@ -226,28 +225,6 @@ class State(object):
         self.fields = FieldCreator(fieldlist, self.xn, self.output.dumplist)
 
         self.dumpfile = None
-
-        # figure out if we're on a sphere
-        try:
-            self.on_sphere = (mesh._base_mesh.geometric_dimension() == 3 and mesh._base_mesh.topological_dimension() == 2)
-        except AttributeError:
-            self.on_sphere = (mesh.geometric_dimension() == 3 and mesh.topological_dimension() == 2)
-
-        #  build the vertical normal and define perp for 2d geometries
-        dim = mesh.topological_dimension()
-        if self.on_sphere:
-            x = SpatialCoordinate(mesh)
-            R = sqrt(inner(x, x))
-            self.k = interpolate(x/R, mesh.coordinates.function_space())
-            if dim == 2:
-                outward_normals = CellNormal(mesh)
-                self.perp = lambda u: cross(outward_normals, u)
-        else:
-            kvec = [0.0]*dim
-            kvec[dim-1] = 1.0
-            self.k = Constant(kvec)
-            if dim == 2:
-                self.perp = lambda u: as_vector([-u[1], u[0]])
 
         #  Constant to hold current time
         self.t = Constant(0.0)

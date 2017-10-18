@@ -1,7 +1,6 @@
 from gusto import *
 from firedrake import as_vector,\
-    VectorFunctionSpace, PeriodicIntervalMesh, ExtrudedMesh, \
-    sin, SpatialCoordinate, Function
+    VectorFunctionSpace, sin, SpatialCoordinate, Function
 import numpy as np
 import sys
 
@@ -12,17 +11,13 @@ else:
     tmax = 3600.
 
 ##############################################################################
-# set up mesh
+# set up domain
 ##############################################################################
-# Construct 1d periodic base mesh
 columns = 300  # number of columns
 L = 3.0e5
-m = PeriodicIntervalMesh(columns, L)
-
-# build 2D mesh by extruding the base mesh
 nlayers = 10  # horizontal layers
 H = 1.0e4  # Height position of the model top
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+domain = VerticalSliceDomain(L, H, columns, nlayers)
 
 ##############################################################################
 # set up all the other things that state requires
@@ -51,22 +46,17 @@ output = OutputParameters(dirname='gw_incompressible', dumpfreq=10, dumplist=['u
 # and documented in configuration.py
 parameters = CompressibleParameters()
 
-# class for diagnostics
-# fields passed to this class will have basic diagnostics computed
-# (eg min, max, l2 norm) and these will be output as a json file
-diagnostics = Diagnostics(*fieldlist)
-
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber()]
 
 # setup state, passing in the mesh, information on the required finite element
 # function spaces, z, k, and the classes above
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -82,6 +72,7 @@ p0 = state.fields("p")
 Vu = u0.function_space()
 Vb = b0.function_space()
 
+mesh = domain.mesh
 x, z = SpatialCoordinate(mesh)
 
 # first setup the background buoyancy profile
@@ -125,7 +116,6 @@ ueqn = EulerPoincare(state, Vu)
 supg = True
 if supg:
     beqn = SUPGAdvection(state, Vb,
-                         supg_params={"dg_direction": "horizontal"},
                          equation_form="advective")
 else:
     beqn = EmbeddedDGAdvection(state, Vb,

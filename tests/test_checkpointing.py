@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, exp, sin, Function, as_vector
+from firedrake import SpatialCoordinate, exp, sin, Function, as_vector
 import numpy as np
 
 
@@ -8,12 +7,10 @@ def setup_sk(dirname):
     nlayers = 10  # horizontal layers
     columns = 30  # number of columns
     L = 1.e5
-    m = PeriodicIntervalMesh(columns, L)
+    H = 1.0e4  # Height position of the model top
     dt = 6.0
 
-    # build volume mesh
-    H = 1.0e4  # Height position of the model top
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+    domain = VerticalSliceDomain(L, H, columns, nlayers)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=dt)
@@ -21,7 +18,8 @@ def setup_sk(dirname):
     parameters = CompressibleParameters()
     diagnostic_fields = [CourantNumber()]
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
@@ -45,7 +43,7 @@ def setup_sk(dirname):
     N = parameters.N
 
     # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
-    x, z = SpatialCoordinate(mesh)
+    x, z = SpatialCoordinate(domain.mesh)
     Tsurf = 300.
     thetab = Tsurf*exp(N**2*z/g)
 
@@ -71,7 +69,7 @@ def setup_sk(dirname):
     # Set up advection schemes
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-    thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"})
+    thetaeqn = SUPGAdvection(state, Vt)
     advected_fields = []
     advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
     advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))

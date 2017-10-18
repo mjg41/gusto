@@ -381,7 +381,7 @@ class Vorticity(DiagnosticField):
             else:
                 a = q*gamma*dx
 
-            if state.on_sphere:
+            if state.physical_domain.on_sphere:
                 cell_normals = CellNormal(state.mesh)
                 gradperp = lambda psi: cross(cell_normals, grad(psi))
                 L = (- inner(gradperp(gamma), u))*dx
@@ -389,7 +389,7 @@ class Vorticity(DiagnosticField):
                 raise NotImplementedError("The vorticity diagnostics have only been implemented for 2D spherical geometries.")
 
             if vorticity_type != "relative":
-                f = state.fields("coriolis")
+                f = state.physical_domain.coriolis
                 L += gamma*f*dx
 
             problem = LinearVariationalProblem(a, L, self.field)

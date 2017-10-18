@@ -1,7 +1,6 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, Constant, DirichletBC, pi, cos, Function, sqrt, \
-    conditional
+from firedrake import SpatialCoordinate, Constant, DirichletBC, pi, cos, \
+    Function, sqrt, conditional
 import sys
 
 if '--running-tests' in sys.argv:
@@ -12,8 +11,6 @@ else:
     tmax = 15.*60.
 
 L = 51200.
-
-# build volume mesh
 H = 6400.  # Height position of the model top
 
 for delta, dt in res_dt.items():
@@ -22,22 +19,19 @@ for delta, dt in res_dt.items():
     nlayers = int(H/delta)  # horizontal layers
     columns = int(L/delta)  # number of columns
 
-    m = PeriodicIntervalMesh(columns, L)
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-
+    domain = VerticalSliceDomain(L, H, columns, nlayers)
     fieldlist = ['u', 'rho', 'theta']
-    timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
+    timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumpfreq=5, dumplist=['u'], perturbation_fields=['theta', 'rho'])
     parameters = CompressibleParameters()
-    diagnostics = Diagnostics(*fieldlist)
     diagnostic_fields = [CourantNumber()]
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
-                  diagnostics=diagnostics,
                   fieldlist=fieldlist,
                   diagnostic_fields=diagnostic_fields)
 
@@ -60,7 +54,7 @@ for delta, dt in res_dt.items():
     # Calculate hydrostatic Pi
     compressible_hydrostatic_balance(state, theta_b, rho_b, solve_for_rho=True)
 
-    x = SpatialCoordinate(mesh)
+    x = SpatialCoordinate(domain.mesh)
     a = 5.0e3
     deltaTheta = 1.0e-2
     xc = 0.5*L
@@ -84,7 +78,6 @@ for delta, dt in res_dt.items():
     supg = True
     if supg:
         thetaeqn = SUPGAdvection(state, Vt,
-                                 supg_params={"dg_direction": "horizontal"},
                                  equation_form="advective")
     else:
         thetaeqn = EmbeddedDGAdvection(state, Vt,

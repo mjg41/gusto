@@ -1,7 +1,7 @@
 from os import path
 from gusto import *
-from firedrake import as_vector, Constant, PeriodicIntervalMesh, \
-    SpatialCoordinate, ExtrudedMesh, FunctionSpace, Function, \
+from firedrake import as_vector, Constant, \
+    SpatialCoordinate, FunctionSpace, Function, \
     conditional, sqrt
 from netCDF4 import Dataset
 
@@ -18,9 +18,7 @@ def setup_theta_limiter(dirname):
     ncolumns = int(L / 10.)
 
     # make mesh
-    m = PeriodicIntervalMesh(ncolumns, L)
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=(H / nlayers))
-    x, z = SpatialCoordinate(mesh)
+    domain = VerticalSliceDomain(L, H, nlayers, ncolumns)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=1.0, maxk=4, maxi=1)
@@ -30,7 +28,8 @@ def setup_theta_limiter(dirname):
                               perturbation_fields=['theta'])
     parameters = CompressibleParameters()
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
@@ -42,6 +41,7 @@ def setup_theta_limiter(dirname):
     theta0 = state.fields("theta")
 
     # spaces
+    mesh = domain.mesh
     Vpsi = FunctionSpace(mesh, "CG", 2)
     Vt = theta0.function_space()
 
@@ -54,6 +54,7 @@ def setup_theta_limiter(dirname):
     theta_b = Function(Vt).interpolate(thetab)
 
     # set up bubble
+    x, z = SpatialCoordinate(mesh)
     xc = 200.
     zc = 200.
     rc = 100.

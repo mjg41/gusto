@@ -22,7 +22,8 @@ class Forcing(object, metaclass=ABCMeta):
     term - these will be multiplied by the appropriate test function.
     """
 
-    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None):
+    def __init__(self, state, euler_poincare=True, linear=False,
+                 extra_terms=None, moisture=None):
         self.state = state
         if linear:
             self.euler_poincare = False
@@ -41,8 +42,13 @@ class Forcing(object, metaclass=ABCMeta):
         self.uF = Function(self.Vu)
 
         # find out which terms we need
-        self.extruded = self.Vu.extruded
-        self.coriolis = state.Omega is not None or hasattr(state.fields, "coriolis")
+        domain = state.physical_domain
+        self.is_extruded = domain.is_extruded
+        self.is_rotating = domain.is_rotating
+        if self.is_rotating and hasattr(domain, "rotation_vector"):
+            self.Omega = domain.rotation_vector
+        if self.is_rotating and hasattr(domain, "coriolis"):
+            self.coriolis = domain.coriolis
         self.sponge = state.mu is not None
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
@@ -59,11 +65,12 @@ class Forcing(object, metaclass=ABCMeta):
 
     def coriolis_term(self):
         u0 = split(self.x0)[0]
-        return -inner(self.test, cross(2*self.state.Omega, u0))*dx
+        return -inner(self.test, cross(2*self.Omega, u0))*dx
 
     def sponge_term(self):
         u0 = split(self.x0)[0]
-        return self.state.mu*inner(self.test, self.state.k)*inner(u0, self.state.k)*dx
+        k = self.state.physical_domain.vertical_normal
+        return self.state.mu*inner(self.test, k)*inner(u0, k)*dx
 
     def euler_poincare_term(self):
         u0 = split(self.x0)[0]
@@ -75,9 +82,9 @@ class Forcing(object, metaclass=ABCMeta):
 
     def forcing_term(self):
         L = self.pressure_gradient_term()
-        if self.extruded:
+        if self.is_extruded:
             L += self.gravity_term()
-        if self.coriolis:
+        if self.is_rotating:
             L += self.coriolis_term()
         if self.euler_poincare:
             L += self.euler_poincare_term()
@@ -164,7 +171,8 @@ class CompressibleForcing(Forcing):
     def gravity_term(self):
 
         g = self.state.parameters.g
-        L = -g*inner(self.test, self.state.k)*dx
+        k = self.state.physical_domain.vertical_normal
+        L = -g*inner(self.test, k)*dx
 
         return L
 
@@ -257,7 +265,8 @@ class IncompressibleForcing(Forcing):
 
     def gravity_term(self):
         _, _, b0 = split(self.x0)
-        L = b0*inner(self.test, self.state.k)*dx
+        k = self.state.physical_domain.vertical_normal
+        L = b0*inner(self.test, k)*dx
         return L
 
     def _build_forcing_solvers(self):
@@ -384,9 +393,10 @@ class ShallowWaterForcing(Forcing):
 
     def coriolis_term(self):
 
-        f = self.state.fields("coriolis")
+        f = self.coriolis
         u0, _ = split(self.x0)
-        L = -f*inner(self.test, self.state.perp(u0))*dx
+        perp = self.state.physical_domain.perp
+        L = -f*inner(self.test, perp(u0))*dx
         return L
 
     def pressure_gradient_term(self):

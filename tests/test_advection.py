@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import IcosahedralSphereMesh, PeriodicIntervalMesh, \
-    ExtrudedMesh, SpatialCoordinate, \
+from firedrake import SpatialCoordinate, \
     as_vector, VectorFunctionSpace, sin, exp, Function, FunctionSpace
 import pytest
 from math import pi
@@ -11,29 +10,26 @@ def state(tmpdir, geometry):
     output = OutputParameters(dirname=str(tmpdir), dumplist=["f"], dumpfreq=15)
 
     if geometry == "sphere":
-        mesh = IcosahedralSphereMesh(radius=1,
-                                     refinement_level=3,
-                                     degree=1)
-        x = SpatialCoordinate(mesh)
-        mesh.init_cell_orientations(x)
+        domain = SphericalDomain(radius=1,
+                                 refinement_level=3,
+                                 degree=1, is_rotating=False)
         family = "BDM"
         vertical_degree = None
         fieldlist = ["u", "D"]
         dt = pi/3. * 0.01
+        x = SpatialCoordinate(domain.mesh)
         uexpr = as_vector([-x[1], x[0], 0.0])
 
     if geometry == "slice":
-        m = PeriodicIntervalMesh(15, 1.)
-        mesh = ExtrudedMesh(m, layers=15, layer_height=1./15.)
+        domain = VerticalSliceDomain(1., 1., 15, 15, is_3d=False, is_rotating=False)
         family = "CG"
         vertical_degree = 1
         fieldlist = ["u", "rho", "theta"]
         dt = 0.01
-        x = SpatialCoordinate(mesh)
         uexpr = as_vector([1.0, 0.0])
 
     timestepping = TimesteppingParameters(dt=dt)
-    state = State(mesh,
+    state = State(domain,
                   vertical_degree=vertical_degree,
                   horizontal_degree=1,
                   family=family,
@@ -246,7 +242,7 @@ def test_advection_supg(geometry, error, state, f_init, tmax, f_end):
             f = state.fields(fname, fspace)
             f.interpolate(f_init)
             hdiv_v_fields.append(fname)
-            eqn = SUPGAdvection(state, fspace, ibp=ibp, equation_form=equation_form, supg_params={"dg_direction": "horizontal"})
+            eqn = SUPGAdvection(state, fspace, ibp=ibp, equation_form=equation_form)
             if time_discretisation == "ssprk":
                 advected_fields.append((fname, SSPRK3(state, f, eqn)))
             elif time_discretisation == "im":
@@ -262,7 +258,7 @@ def test_advection_supg(geometry, error, state, f_init, tmax, f_end):
             f = state.fields(fname, vspace)
             f.project(vec_expr)
             hdiv_fields.append(fname)
-            eqn = SUPGAdvection(state, vspace, ibp=ibp, equation_form=equation_form, supg_params={"dg_direction": "horizontal"})
+            eqn = SUPGAdvection(state, vspace, ibp=ibp, equation_form=equation_form)
             if time_discretisation == "ssprk":
                 advected_fields.append((fname, SSPRK3(state, f, eqn)))
             elif time_discretisation == "im":

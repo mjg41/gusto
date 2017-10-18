@@ -134,7 +134,7 @@ class CompressibleSolver(TimesteppingSolver):
         pibar_theta = exner_theta(thetabar, rhobar, state)
 
         # Analytical (approximate) elimination of theta
-        k = state.k             # Upward pointing unit vector
+        k = state.physical_domain.vertical_normal  # Upward pointing unit vector
         theta = -dot(k, u)*dot(k, grad(thetabar))*beta + theta_in
 
         # Only include theta' (rather than pi') in the vertical
@@ -285,7 +285,7 @@ class IncompressibleSolver(TimesteppingSolver):
         bbar = state.fields("bbar")
 
         # Analytical (approximate) elimination of theta
-        k = state.k             # Upward pointing unit vector
+        k = state.physical_domain.vertical_normal  # Upward pointing unit vector
         b = -dot(k, u)*dot(k, grad(bbar))*beta + b_in
 
         # vertical projection

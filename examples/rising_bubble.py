@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, Constant, pi, cos, Function, sqrt, conditional
+from firedrake import SpatialCoordinate, Constant, pi, cos, Function, sqrt, conditional
 import sys
 
 dt = 1.
@@ -14,22 +13,20 @@ H = 1000.
 nlayers = int(H/10.)
 ncolumns = int(L/10.)
 
-m = PeriodicIntervalMesh(ncolumns, L)
-mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
 
 fieldlist = ['u', 'rho', 'theta']
-timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
+timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='rb', dumpfreq=10, dumplist=['u'], perturbation_fields=['theta', 'rho'])
 parameters = CompressibleParameters()
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -52,7 +49,7 @@ rho_b = Function(Vr)
 # Calculate hydrostatic Pi
 compressible_hydrostatic_balance(state, theta_b, rho_b, solve_for_rho=True)
 
-x = SpatialCoordinate(mesh)
+x = SpatialCoordinate(domain.mesh)
 xc = 500.
 zc = 350.
 rc = 250.
@@ -74,7 +71,6 @@ rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
 supg = True
 if supg:
     thetaeqn = SUPGAdvection(state, Vt,
-                             supg_params={"dg_direction": "horizontal"},
                              equation_form="advective")
 else:
     thetaeqn = EmbeddedDGAdvection(state, Vt,

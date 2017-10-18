@@ -1,6 +1,5 @@
 from gusto import *
-from firedrake import IcosahedralSphereMesh, cos, sin, SpatialCoordinate, \
-    FunctionSpace
+from firedrake import cos, sin
 import sys
 
 dt = 900.
@@ -10,34 +9,28 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 14*day
 
-refinements = 4  # number of horizontal cells = 20*(4^refinements)
-
 R = 6371220.
 H = 8000.
 
-mesh = IcosahedralSphereMesh(radius=R,
-                             refinement_level=refinements)
-x = SpatialCoordinate(mesh)
-mesh.init_cell_orientations(x)
+domain = SphericalDomain(radius=R, refinement_level=4)
 
 fieldlist = ['u', 'D']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sw_rossby_wave_ll', dumpfreq=24, dumplist_latlon=['D'])
 parameters = ShallowWaterParameters(H=H)
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber()]
 
-state = State(mesh, horizontal_degree=1,
+state = State(domain,
+              horizontal_degree=1,
               family="BDM",
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
-# interpolate initial conditions
 # Initial/current conditions
+mesh = domain.mesh
 u0 = state.fields("u")
 D0 = state.fields("D")
 omega = 7.848e-6  # note lower-case, not the same as Omega
@@ -66,12 +59,6 @@ def Ctheta(theta):
 
 
 Dexpr = H + (R**2)*(Atheta(theta) + Btheta(theta)*cos(4*lamda) + Ctheta(theta)*cos(8*lamda))/g
-
-# Coriolis
-fexpr = 2*Omega*x[2]/R
-V = FunctionSpace(mesh, "CG", 1)
-f = state.fields("coriolis", V)
-f.interpolate(fexpr)  # Coriolis frequency (1/s)
 
 u0.project(uexpr, form_compiler_parameters={'quadrature_degree': 8})
 D0.interpolate(Dexpr)

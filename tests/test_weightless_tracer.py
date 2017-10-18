@@ -1,7 +1,6 @@
 from os import path
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    Constant, SpatialCoordinate, pi, Function, sqrt, conditional, cos
+from firedrake import Constant, SpatialCoordinate, pi, Function, sqrt, conditional, cos
 from netCDF4 import Dataset
 
 
@@ -13,9 +12,8 @@ def setup_tracer(dirname):
     nlayers = int(H / 100.)
     ncolumns = int(L / 100.)
 
-    # make mesh
-    m = PeriodicIntervalMesh(ncolumns, L)
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=(H / nlayers))
+    # make domain
+    domain = VerticalSliceDomain(L, H, nlayers, ncolumns)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=10.0, maxk=4, maxi=1)
@@ -25,7 +23,8 @@ def setup_tracer(dirname):
                               perturbation_fields=['theta', 'rho'])
     parameters = CompressibleParameters()
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
@@ -60,7 +59,7 @@ def setup_tracer(dirname):
     xc = 500.
     zc = 350.
     rc = 250.
-    x = SpatialCoordinate(mesh)
+    x = SpatialCoordinate(domain.mesh)
     r = sqrt((x[0]-xc)**2 + (x[1]-zc)**2)
     theta_pert = conditional(r > rc, 0., 0.25*(1. + cos((pi/rc)*r)))
 
@@ -78,9 +77,7 @@ def setup_tracer(dirname):
     # set up advection schemes
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-    thetaeqn = SUPGAdvection(state, Vt,
-                             supg_params={"dg_direction": "horizontal"},
-                             equation_form="advective")
+    thetaeqn = SUPGAdvection(state, Vt, equation_form="advective")
 
     # build advection dictionary
     advected_fields = []

@@ -35,6 +35,8 @@ else:
 new_coords = Function(Vc).interpolate(xexpr)
 mesh = Mesh(new_coords)
 
+domain = VerticalSliceDomain(mesh=mesh)
+
 # sponge function
 W_DG = FunctionSpace(mesh, "DG", 2)
 x, z = SpatialCoordinate(mesh)
@@ -46,16 +48,15 @@ fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='nh_mountain_smootherz', dumpfreq=18, dumplist=['u'], perturbation_fields=['theta', 'rho'])
 parameters = CompressibleParameters(g=9.80665, cp=1004.)
-diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber(), VelocityZ()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(domain,
+              vertical_degree=1, horizontal_degree=1,
               family="CG",
               sponge_function=mu,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
-              diagnostics=diagnostics,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -140,7 +141,7 @@ ueqn = EulerPoincare(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
 supg = True
 if supg:
-    thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"}, equation_form="advective")
+    thetaeqn = SUPGAdvection(state, Vt)
 else:
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
 advected_fields = []

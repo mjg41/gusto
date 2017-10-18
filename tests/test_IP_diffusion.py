@@ -1,7 +1,7 @@
 import itertools
 from os import path
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, SpatialCoordinate,\
+from firedrake import SpatialCoordinate,\
     VectorFunctionSpace, File, Constant, Function, exp, as_vector
 import pytest
 
@@ -10,21 +10,22 @@ def setup_IPdiffusion(vector, DG):
 
     dt = 0.01
     L = 10.
-    m = PeriodicIntervalMesh(50, L)
-    mesh = ExtrudedMesh(m, layers=50, layer_height=0.2)
+    domain = VerticalSliceDomain(L, 10., 50, 50)
 
     fieldlist = ['u', 'D']
     timestepping = TimesteppingParameters(dt=dt)
     parameters = CompressibleParameters()
     output = OutputParameters(dirname="IPdiffusion")
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   parameters=parameters,
                   output=output,
                   fieldlist=fieldlist)
 
+    mesh = domain.mesh
     x = SpatialCoordinate(mesh)
     if vector:
         if DG:

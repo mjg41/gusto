@@ -50,7 +50,8 @@ def incompressible_hydrostatic_balance(state, b0, p0, top=False, params=None):
     bcs = [DirichletBC(Vv, 0.0, bstring)]
 
     a = inner(w, v)*dx
-    L = inner(state.k, w)*b0*dx
+    k = state.physical_domain.vertical_normal
+    L = inner(k, w)*b0*dx
     F = Function(Vv)
 
     solve(a == L, F, bcs=bcs)
@@ -142,7 +143,8 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
 
     arhs = -cp*inner(dv, n)*theta*pi_boundary*bmeasure
     g = state.parameters.g
-    arhs -= g*inner(dv, state.k)*dx
+    k = state.physical_domain.vertical_normal
+    arhs -= g*inner(dv, k)*dx
 
     bcs = [DirichletBC(W.sub(0), 0.0, bstring)]
 
@@ -192,7 +194,8 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
             + dpi*div(theta0*v)*dx
             + cp*inner(dv, n)*theta*pi_boundary*bmeasure
         )
-        F += g*inner(dv, state.k)*dx
+        k = state.physical_domain.vertical_normal
+        F += g*inner(dv, k)*dx
         rhoproblem = NonlinearVariationalProblem(F, w1, bcs=bcs)
         rhosolver = NonlinearVariationalSolver(rhoproblem, solver_parameters=params)
         rhosolver.solve()
@@ -404,6 +407,7 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
     p = p_0 * pi ** (cp / R_d)
     L_v = L_v0 - (c_pl - c_pv) * (T - T_0)
     w_sat = w_sat1 / (p * exp(w_sat2 * (T - T_0) / (T - w_sat3)) - w_sat4)
+    k = state.physical_domain.vertical_normal
 
     F = (-gamma * theta_e * dxp
          + gamma * T * (p / (p_0 * (1 + w_v * R_v / R_d))) **
@@ -415,7 +419,7 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
          - cp * div(w * theta_v / (1.0 + water_t)) * pi * dxp
          + psi * div(theta_v * v / (1.0 + water_t)) * dxp
          + cp * inner(w, n) * pi_boundary * theta_v / (1.0 + water_t) * ds_b
-         + g * inner(w, state.k) * dxp)
+         + g * inner(w, k) * dxp)
 
     bcs = [DirichletBC(Z.sub(3), 0.0, "top")]
 

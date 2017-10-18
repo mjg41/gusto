@@ -1,26 +1,24 @@
 from gusto import *
-from firedrake import SpatialCoordinate, PeriodicRectangleMesh, ExtrudedMesh, \
-    Function
+from firedrake import SpatialCoordinate, Function
 
 
 def setup_gw(dirname):
     nlayers = 10  # horizontal layers
     columns = 30  # number of columns
     L = 1.e5
-    m = PeriodicRectangleMesh(columns, 1, L, 1.e4, quadrilateral=True)
-    dt = 6.0
-
-    # build volume mesh
     H = 1.0e4  # Height position of the model top
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+
+    domain = VerticalSliceDomain(L, H, columns, nlayers)
+    dt = 6.0
 
     fieldlist = ['u', 'p', 'b']
     timestepping = TimesteppingParameters(dt=dt)
-    output = OutputParameters(dirname=dirname+"/gw_incompressible", dumplist=['u'], dumpfreq=5)
+    output = OutputParameters(dirname=dirname+"/gw_incompressible", dumplist=['u'])
     parameters = CompressibleParameters()
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
-                  family="RTCF",
+    state = State(domain,
+                  vertical_degree=1, horizontal_degree=1,
+                  family="CG",
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
@@ -32,7 +30,7 @@ def setup_gw(dirname):
     b0 = state.fields("b")
 
     # z.grad(bref) = N**2
-    x, y, z = SpatialCoordinate(mesh)
+    x, z = SpatialCoordinate(domain.mesh)
     N = parameters.N
     bref = z*(N**2)
 
@@ -55,7 +53,7 @@ def run_gw_incompressible(dirname):
     dt = state.timestepping.dt
     forcing.apply(dt, state.xn, state.xn, state.xn)
     u = state.xn.split()[0]
-    w = Function(state.spaces("DG")).interpolate(u[2])
+    w = Function(state.spaces("DG")).interpolate(u[1])
     return w
 
 
