@@ -208,7 +208,7 @@ class ShallowWaterPotentialEnstrophy(DiagnosticField):
         elif self.base_field_name == "RelativeVorticity":
             zeta = state.fields("RelativeVorticity")
             D = state.fields("D")
-            f = state.fields("coriolis")
+            f = state.physical_domain.coriolis
             enstrophy = 0.5*(zeta + f)**2/D
         elif self.base_field_name == "AbsoluteVorticity":
             zeta_abs = state.fields("AbsoluteVorticity")
