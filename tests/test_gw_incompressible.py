@@ -61,4 +61,4 @@ def test_gw(tmpdir):
 
     dirname = str(tmpdir)
     w = run_gw_incompressible(dirname)
-    assert max(abs(w.dat.data.min()), w.dat.data.max()) < 3e-8
+    assert max(abs(w.dat.data.min()), w.dat.data.max()) < 4e-8

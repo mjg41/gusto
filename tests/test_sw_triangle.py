@@ -116,12 +116,12 @@ def test_sw_setup(tmpdir, euler_poincare, vector_manifold):
     Derr = data.groups["D_error"]
     D = data.groups["D"]
     Dl2 = Derr["l2"][-1]/D["l2"][0]
-    assert Dl2 < 5.e-4
+    assert Dl2 < 1.e-3
 
     uerr = data.groups["u_error"]
     u = data.groups["u"]
     ul2 = uerr["l2"][-1]/u["l2"][0]
-    assert ul2 < 5.e-3
+    assert ul2 < 7.e-3
 
     # these 3 checks are for the diagnostic field so the checks are
     # made for values at the beginning of the run:
