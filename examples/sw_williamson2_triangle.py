@@ -27,6 +27,10 @@ for ref_level, dt in ref_dt.items():
 
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumplist_latlon=['D', 'D_error'], steady_state_error_fields=['D', 'u'])
+    diagnostic_fields = [RelativeVorticity(), PotentialVorticity(),
+                         ShallowWaterKineticEnergy(),
+                         ShallowWaterPotentialEnergy(),
+                         ShallowWaterPotentialEnstrophy()]
 
     state = State(domain,
                   horizontal_degree=1,
@@ -34,6 +38,7 @@ for ref_level, dt in ref_dt.items():
                   timestepping=timestepping,
                   output=output,
                   parameters=parameters,
+                  diagnostic_fields=diagnostic_fields,
                   fieldlist=fieldlist)
 
     # interpolate initial conditions
@@ -63,7 +68,7 @@ for ref_level, dt in ref_dt.items():
     sw_forcing = ShallowWaterForcing(state, euler_poincare=False)
 
     # build time stepper
-    stepper = Timestepper(state, advected_fields, linear_solver,
-                          sw_forcing)
+    stepper = CrankNicolson(state, advected_fields, linear_solver,
+                            sw_forcing)
 
     stepper.run(t=0, tmax=tmax)
