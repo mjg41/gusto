@@ -181,9 +181,10 @@ class CompressibleSolver(TimesteppingSolver):
         # Place to put result of u rho solver
         self.urho = Function(M)
 
-        # Boundary conditions (assumes extruded mesh)
-        bcs = [DirichletBC(M.sub(0), 0.0, "bottom"),
-               DirichletBC(M.sub(0), 0.0, "top")]
+        # Boundary conditions
+        bcs = []
+        for bc_id in self.state.physical_domain.bc_ids:
+            bcs.append(DirichletBC(M.sub(0), 0.0, bc_id))
 
         # Solver for u, rho
         urho_problem = LinearVariationalProblem(
@@ -307,9 +308,10 @@ class IncompressibleSolver(TimesteppingSolver):
         # Place to put result of u p solver
         self.up = Function(M)
 
-        # Boundary conditions (assumes extruded mesh)
-        bcs = [DirichletBC(M.sub(0), 0.0, "bottom"),
-               DirichletBC(M.sub(0), 0.0, "top")]
+        # Boundary conditions
+        bcs = []
+        for bc_id in self.state.physical_domain.bc_ids:
+            bcs.append(DirichletBC(M.sub(0), 0.0, bc_id))
 
         # preconditioner equation
         L = self.L
@@ -363,27 +365,56 @@ class IncompressibleSolver(TimesteppingSolver):
 
 class ShallowWaterSolver(TimesteppingSolver):
 
-    solver_parameters = {
-        'ksp_type': 'preonly',
-        'mat_type': 'matfree',
-        'pc_type': 'python',
-        'pc_python_type': 'firedrake.HybridizationPC',
-        'hybridization': {'ksp_type': 'cg',
-                          'pc_type': 'gamg',
-                          'ksp_rtol': 1e-8,
-                          'mg_levels': {'ksp_type': 'chebyshev',
-                                        'ksp_max_it': 2,
-                                        'pc_type': 'bjacobi',
-                                        'sub_pc_type': 'ilu'},
-                          # Broken residual construction
-                          'hdiv_residual': {'ksp_type': 'cg',
-                                            'pc_type': 'bjacobi',
-                                            'sub_pc_type': 'ilu',
-                                            'ksp_rtol': 1e-8},
-                          # Projection step
-                          'hdiv_projection': {'ksp_type': 'cg',
-                                              'ksp_rtol': 1e-8}}
-    }
+    def __init__(self, state, hybridised=True, solver_parameters=None,
+                 overwrite_solver_parameters=False):
+        self.hybridised = hybridised
+        super().__init__(state, solver_parameters, overwrite_solver_parameters)
+
+    @property
+    def solver_parameters(self):
+        if self.hybridised:
+            return {
+                'ksp_type': 'preonly',
+                'mat_type': 'matfree',
+                'pc_type': 'python',
+                'pc_python_type': 'firedrake.HybridizationPC',
+                'hybridization': {'ksp_type': 'cg',
+                                  'pc_type': 'gamg',
+                                  'ksp_rtol': 1e-8,
+                                  'mg_levels': {'ksp_type': 'chebyshev',
+                                                'ksp_max_it': 2,
+                                                'pc_type': 'bjacobi',
+                                                'sub_pc_type': 'ilu'},
+                                  # Broken residual construction
+                                  'hdiv_residual': {'ksp_type': 'cg',
+                                                    'pc_type': 'bjacobi',
+                                                    'sub_pc_type': 'ilu',
+                                                    'ksp_rtol': 1e-8},
+                                  # Projection step
+                                  'hdiv_projection': {'ksp_type': 'cg',
+                                                      'ksp_rtol': 1e-8}}
+            }
+        else:
+            return {
+                'pc_type': 'fieldsplit',
+                'pc_fieldsplit_type': 'schur',
+                'ksp_type': 'gmres',
+                'ksp_max_it': 100,
+                'ksp_gmres_restart': 50,
+                'pc_fieldsplit_schur_fact_type': 'FULL',
+                'pc_fieldsplit_schur_precondition': 'selfp',
+                'fieldsplit_0_ksp_type': 'preonly',
+                'fieldsplit_0_pc_type': 'bjacobi',
+                'fieldsplit_0_sub_pc_type': 'ilu',
+                'fieldsplit_1_ksp_type': 'preonly',
+                'fieldsplit_1_pc_type': 'gamg',
+                'fieldsplit_1_mg_levels_ksp_type': 'chebyshev',
+                'fieldsplit_1_mg_levels_ksp_chebyshev_estimate_eigenvalues': True,
+                'fieldsplit_1_mg_levels_ksp_chebyshev_estimate_eigenvalues_random': True,
+                'fieldsplit_1_mg_levels_ksp_max_it': 1,
+                'fieldsplit_1_mg_levels_pc_type': 'bjacobi',
+                'fieldsplit_1_mg_levels_sub_pc_type': 'ilu'
+            }
 
     def _setup_solver(self):
         state = self.state
@@ -411,9 +442,14 @@ class ShallowWaterSolver(TimesteppingSolver):
         # Place to put result of u rho solver
         self.uD = Function(W)
 
+        # Boundary conditions
+        bcs = []
+        for bc_id in self.state.physical_domain.bc_ids:
+            bcs.append(DirichletBC(W.sub(0), 0.0, bc_id))
+
         # Solver for u, D
         uD_problem = LinearVariationalProblem(
-            aeqn, Leqn, self.state.dy)
+            aeqn, Leqn, self.state.dy, bcs=bcs)
 
         self.uD_solver = LinearVariationalSolver(uD_problem,
                                                  solver_parameters=self.solver_parameters,

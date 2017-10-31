@@ -47,7 +47,7 @@ def setup_IPdiffusion(dirname, vector, DG):
         f.project(fexpr)
 
     mu = 5.
-    f_diffusion = InteriorPenalty(state, f.function_space(), kappa=kappa, mu=mu)
+    f_diffusion = InteriorPenalty(state, f, kappa=kappa, mu=mu)
     diffused_fields = [("f", f_diffusion)]
     stepper = AdvectionDiffusion(state, diffused_fields=diffused_fields)
     return stepper

@@ -1,7 +1,8 @@
 from abc import ABCMeta, abstractmethod
 from firedrake import TestFunction, TrialFunction, \
     Function, inner, outer, grad, avg, dx, dS_h, dS_v, \
-    FacetNormal, LinearVariationalProblem, LinearVariationalSolver, action
+    FacetNormal, LinearVariationalProblem, LinearVariationalSolver, \
+    action, DirichletBC
 
 
 __all__ = ["InteriorPenalty"]
@@ -39,14 +40,16 @@ class InteriorPenalty(Diffusion):
     :arg: mu: the penalty weighting function, which is
     :recommended to be proportional to 1/dx
     :arg: kappa: strength of diffusion
-    :arg: bcs: (optional) a list of boundary conditions to apply
+    :arg: bc_ids: (optional) a list of boundary ids on which to apply no
+    normal flow condition
 
     """
 
-    def __init__(self, state, V, kappa, mu, bcs=None):
+    def __init__(self, state, field, kappa, mu):
         super(InteriorPenalty, self).__init__(state)
 
         dt = state.timestepping.dt
+        V = field.function_space()
         gamma = TestFunction(V)
         phi = TrialFunction(V)
         self.phi1 = Function(V)
@@ -63,6 +66,11 @@ class InteriorPenalty(Diffusion):
         a += dt*get_flux_form(dS_v, kappa)
         a += dt*get_flux_form(dS_h, kappa)
         L = inner(gamma, phi)*dx
+
+        bcs = []
+        if field.name() == "u":
+            for bc_id in state.physical_domain.bc_ids:
+                bcs.append(DirichletBC(V, 0., bc_id))
         problem = LinearVariationalProblem(a, action(L, self.phi1), self.phi1, bcs=bcs)
         self.solver = LinearVariationalSolver(problem)
 

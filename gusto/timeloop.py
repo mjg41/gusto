@@ -51,7 +51,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
 
         M = unp1.function_space()
         bcs = []
-        for bc_id in self.state.physical_domain.boundary_ids:
+        for bc_id in self.state.physical_domain.bc_ids:
             bcs.append(DirichletBC(M, 0.0, bc_id))
 
         for bc in bcs:

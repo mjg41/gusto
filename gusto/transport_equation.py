@@ -341,16 +341,17 @@ class VectorInvariant(TransportEquation):
         else:
 
             perp = self.physical_domain.perp
-            if self.physical_domain.is_extruded:
-                perp_u_upwind = (
-                    lambda q: Upwind('+')*perp(q('+')) + Upwind('-')*perp(q('-'))
-                )
-            elif self.physical_domain.on_sphere:
+            if self.physical_domain.on_sphere:
                 outward_normals = CellNormal(self.physical_domain.mesh)
                 perp_u_upwind = (
                     lambda q: Upwind('+')*cross(outward_normals('+'), q('+'))
                     + Upwind('-')*cross(outward_normals('-'), q('-'))
                 )
+            else:
+                perp_u_upwind = (
+                    lambda q: Upwind('+')*perp(q('+')) + Upwind('-')*perp(q('-'))
+                )
+
             gradperp = lambda u: perp(grad(u))
 
             if self.ibp == "once":

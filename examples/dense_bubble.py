@@ -93,11 +93,9 @@ for delta, dt in res_dt.items():
     # Set up forcing
     compressible_forcing = CompressibleForcing(state)
 
-    bcs = [DirichletBC(Vu, 0.0, "bottom"),
-           DirichletBC(Vu, 0.0, "top")]
-    diffused_fields = [("u", InteriorPenalty(state, Vu, kappa=75.,
-                                             mu=Constant(10./delta), bcs=bcs)),
-                       ("theta", InteriorPenalty(state, Vt, kappa=75.,
+    diffused_fields = [("u", InteriorPenalty(state, u0, kappa=75.,
+                                             mu=Constant(10./delta))),
+                       ("theta", InteriorPenalty(state, theta0, kappa=75.,
                                                  mu=Constant(10./delta)))]
 
     # build time stepper

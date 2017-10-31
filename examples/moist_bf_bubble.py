@@ -1,12 +1,12 @@
 from gusto import *
 from firedrake import SpatialCoordinate, conditional, cos, pi, sqrt, exp, NonlinearVariationalProblem, \
     NonlinearVariationalSolver, TestFunction, dx, TrialFunction, Constant, Function, \
-    LinearVariationalProblem, LinearVariationalSolver, DirichletBC
+    LinearVariationalProblem, LinearVariationalSolver
 import sys
 
 dt = 1.0
 if '--running-tests' in sys.argv:
-    tmax = 10.
+    tmax = dt
     deltax = 1000.
 else:
     deltax = 100.
@@ -147,15 +147,11 @@ linear_solver = CompressibleSolver(state, moisture=moisture)
 # Set up forcing
 compressible_forcing = CompressibleForcing(state, moisture=moisture)
 
-# diffusion
-bcs = [DirichletBC(Vu, 0.0, "bottom"),
-       DirichletBC(Vu, 0.0, "top")]
-
 diffused_fields = []
 
 if diffusion:
-    diffused_fields.append(('u', InteriorPenalty(state, Vu, kappa=Constant(60.),
-                                                 mu=Constant(10./deltax), bcs=bcs)))
+    diffused_fields.append(('u', InteriorPenalty(state, u0, kappa=Constant(60.),
+                                                 mu=Constant(10./deltax))))
 
 # define condensation
 physics_list = [Condensation(state)]
