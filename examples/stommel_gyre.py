@@ -1,19 +1,24 @@
 from gusto import *
 from firedrake import SpatialCoordinate, pi, sin, as_vector
+import sys
+
+dt = 1.0e3
+if '--running-tests' in sys.argv:
+    tmax = dt
+else:
+    tmax = 60*60*24*60
 
 L = 1.0e6
 W = 1.0e6
-f0 = 1.e-4
-beta = 2.e-11
-dt = 1000.
-tmax = 60*60*24*60
 H = 1.e3
 
-domain = PlaneDomain(L=L, W=W, nx=100, ny=100, coriolis=(f0, beta), bc_ids=[1, 2, 3, 4])
+parameters = ShallowWaterParameters(H=H)
+domain = PlaneDomain(parameters=parameters,
+                     nx=100, ny=100, L=L, W=W,
+                     bc_ids=[1, 2, 3, 4])
 fieldlist = ["u", "D"]
 timestepping = TimesteppingParameters(dt=dt)
-output = OutputParameters(dirname='stommel_gyre', dumpfreq=100)
-parameters = ShallowWaterParameters(H=H)
+output = OutputParameters(dirname='stommel_gyre_ld_is_extra_term', dumpfreq=100)
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain,
@@ -21,7 +26,6 @@ state = State(domain,
               family="BDM",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               diagnostic_fields=diagnostic_fields,
               fieldlist=fieldlist)
 
@@ -40,9 +44,12 @@ linear_solver = ShallowWaterSolver(state, hybridised=False)
 x, y = SpatialCoordinate(domain.mesh)
 A = 1.e-7
 wind_stress = as_vector([A*sin(pi*(y-0.5*L)/L), 0.])
+gamma = 5.e-7
+linear_dissipation = -gamma*u0
 
 # Set up forcing
-sw_forcing = ShallowWaterForcing(state, euler_poincare=False, extra_terms=wind_stress)
+sw_forcing = ShallowWaterForcing(state, euler_poincare=False, extra_terms=wind_stress+linear_dissipation)
+# sw_forcing = ShallowWaterForcing(state, euler_poincare=False, extra_terms=wind_stress, linear_dissipation=True)
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,

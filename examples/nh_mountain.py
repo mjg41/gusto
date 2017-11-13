@@ -35,7 +35,8 @@ else:
 new_coords = Function(Vc).interpolate(xexpr)
 mesh = Mesh(new_coords)
 
-domain = VerticalSliceDomain(mesh=mesh)
+parameters = CompressibleParameters(g=9.80665)
+domain = VerticalSliceDomain(mesh, parameters=parameters)
 
 # sponge function
 W_DG = FunctionSpace(mesh, "DG", 2)
@@ -47,7 +48,6 @@ mu = Function(W_DG).interpolate(mu_top)
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='nh_mountain_smootherz', dumpfreq=18, dumplist=['u'], perturbation_fields=['theta', 'rho'])
-parameters = CompressibleParameters(g=9.80665, cp=1004.)
 diagnostic_fields = [CourantNumber(), VelocityZ()]
 
 state = State(domain,
@@ -56,7 +56,6 @@ state = State(domain,
               sponge_function=mu,
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -83,7 +82,7 @@ kappa = parameters.kappa
 Tsurf = 300.
 thetab = Tsurf*exp(N**2*z/g)
 theta_b = Function(Vt).interpolate(thetab)
-
+print(theta_b.dat.data.min(), theta_b.dat.data.max())
 # Calculate hydrostatic Pi
 params = {'pc_type': 'fieldsplit',
           'pc_fieldsplit_type': 'schur',
@@ -122,6 +121,7 @@ compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, params=par
 p1 = min(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
+print(p0, p1, alpha, beta)
 pi_top = (1.-beta)/alpha
 compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=pi_top, solve_for_rho=True, params=params)
 

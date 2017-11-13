@@ -17,8 +17,10 @@ def setup_theta_limiter(dirname):
     nlayers = int(H / 10.)
     ncolumns = int(L / 10.)
 
-    # make mesh
-    domain = VerticalSliceDomain(L, H, nlayers, ncolumns)
+    # make domain
+    parameters = CompressibleParameters()
+    domain = VerticalSliceDomain(parameters=parameters,
+                                 nx=ncolumns, nlayers=nlayers, L=L, H=H)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=1.0, maxk=4, maxi=1)
@@ -26,14 +28,12 @@ def setup_theta_limiter(dirname):
                               dumpfreq=5,
                               dumplist=['u'],
                               perturbation_fields=['theta'])
-    parameters = CompressibleParameters()
 
     state = State(domain,
                   vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist)
 
     # declare initial fields

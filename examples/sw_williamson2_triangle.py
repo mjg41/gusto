@@ -23,7 +23,9 @@ parameters = ShallowWaterParameters(H=H)
 for ref_level, dt in ref_dt.items():
 
     dirname = "sw_W2_ref%s_dt%s" % (ref_level, dt)
-    domain = SphericalDomain(radius=R, refinement_level=ref_level)
+    domain = SphericalDomain(parameters=parameters,
+                             radius=R, refinement_level=ref_level,
+                             rotation_option="trad_f")
 
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumplist_latlon=['D', 'D_error'], steady_state_error_fields=['D', 'u'])
@@ -37,7 +39,6 @@ for ref_level, dt in ref_dt.items():
                   family="BDM",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   diagnostic_fields=diagnostic_fields,
                   fieldlist=fieldlist)
 
@@ -47,7 +48,7 @@ for ref_level, dt in ref_dt.items():
     x = SpatialCoordinate(domain.mesh)
     u_max = 2*pi*R/(12*day)  # Maximum amplitude of the zonal wind (m/s)
     uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
-    Omega = parameters.Omega
+    Omega = parameters.omega_rate
     g = parameters.g
     Dexpr = H - ((R * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R*R)))/g
 

@@ -20,7 +20,9 @@ def setup_condens(dirname):
     ncolumns = int(L / 100.)
 
     # make domain
-    domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
+    parameters = CompressibleParameters()
+    domain = VerticalSliceDomain(parameters=parameters,
+                                 nx=ncolumns, nlayers=nlayers, L=L, H=H)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=1.0, maxk=4, maxi=1)
@@ -28,14 +30,12 @@ def setup_condens(dirname):
                               dumpfreq=1,
                               dumplist=['u'],
                               perturbation_fields=['theta', 'rho'])
-    parameters = CompressibleParameters()
 
     state = State(domain,
                   vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist,
                   diagnostic_fields=[Sum('water_v', 'water_c')])
 

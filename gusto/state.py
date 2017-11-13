@@ -174,7 +174,6 @@ class State(object):
     :arg sponge_function: (optional) Function specifying a sponge layer.
     :arg timestepping: class containing timestepping parameters
     :arg output: class containing output parameters
-    :arg parameters: class containing physical parameters
     :arg diagnostics: class containing diagnostic methods
     :arg fieldlist: list of prognostic field names
     :arg diagnostic_fields: list of diagnostic field classes
@@ -186,19 +185,18 @@ class State(object):
                  sponge_function=None,
                  timestepping=None,
                  output=None,
-                 parameters=None,
                  diagnostics=None,
                  fieldlist=None,
                  diagnostic_fields=None):
 
         self.physical_domain = physical_domain
+        self.parameters = physical_domain.parameters
         self.mu = sponge_function
         self.timestepping = timestepping
         if output is None:
             raise RuntimeError("You must provide a directory name for dumping results")
         else:
             self.output = output
-        self.parameters = parameters
         if fieldlist is None:
             raise RuntimeError("You must provide a fieldlist containing the names of the prognostic fields")
         else:

@@ -17,7 +17,7 @@ def state(tmpdir, geometry):
     if geometry == "sphere":
         domain = SphericalDomain(radius=1,
                                  refinement_level=3,
-                                 degree=1, is_rotating=False)
+                                 degree=1)
         family = "BDM"
         vertical_degree = None
         fieldlist = ["u", "D"]
@@ -26,7 +26,7 @@ def state(tmpdir, geometry):
         uexpr = as_vector([-x[1], x[0], 0.0])
 
     if geometry == "slice":
-        domain = VerticalSliceDomain(1., 1., 15, 15, is_3d=False, is_rotating=False)
+        domain = VerticalSliceDomain(L=1., H=1., nx=15, nlayers=15)
         family = "CG"
         vertical_degree = 1
         fieldlist = ["u", "rho", "theta"]

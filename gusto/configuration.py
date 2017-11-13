@@ -2,12 +2,11 @@
 Some simple tools for making model configuration nicer.
 """
 
-from abc import ABCMeta, abstractproperty
 from firedrake import sqrt, warning, RectangleMesh, PeriodicIntervalMesh, \
     PeriodicRectangleMesh, ExtrudedMesh, SpatialCoordinate, \
     IcosahedralSphereMesh, CellNormal, inner, cross, interpolate, \
-    Constant, as_vector
-from math import fabs
+    Constant, as_vector, CubedSphereMesh, IntervalMesh
+from firedrake.mesh import ExtrudedMeshTopology
 
 
 __all__ = ["TimesteppingParameters", "OutputParameters", "CompressibleParameters", "ShallowWaterParameters", "EadyParameters", "CompressibleEadyParameters", "PlaneDomain", "SphericalDomain", "ChannelDomain", "VerticalSliceDomain"]
@@ -63,7 +62,18 @@ class OutputParameters(Configuration):
     point_data = []
 
 
-class CompressibleParameters(Configuration):
+class RotationParameters(Configuration):
+    """
+    Class containing permissable rotation parameters, along with
+    commonly used, Earth-relevant values for each
+    """
+    Omega = as_vector((0., 0., 0.5e-4))  # rotation vector
+    omega_rate = 7.292e-5  # rotation rate
+    f0 = 1.e-4  # coriolis parameter
+    beta = 2.e-11  # rate of change of coriolis parameter with latitude
+
+
+class CompressibleParameters(RotationParameters):
 
     """
     Physical parameters for Compressible Euler
@@ -87,17 +97,16 @@ class CompressibleParameters(Configuration):
     w_sat4 = 610.9  # fourth const. in Teten's formula (Pa)
 
 
-class ShallowWaterParameters(Configuration):
+class ShallowWaterParameters(RotationParameters):
 
     """
     Physical parameters for 3d Compressible Euler
     """
     g = 9.80616
-    Omega = 7.292e-5  # rotation rate
     H = None  # mean depth
 
 
-class EadyParameters(Configuration):
+class EadyParameters(RotationParameters):
 
     """
     Physical parameters for Incompressible Eady
@@ -106,7 +115,6 @@ class EadyParameters(Configuration):
     dbdy = -1.0e-07
     H = None
     L = None
-    f = 1.e-4
     deltax = None
     deltaz = None
     fourthorder = False
@@ -124,28 +132,63 @@ class CompressibleEadyParameters(CompressibleParameters, EadyParameters):
     Pi0 = 0.0
 
 
-class PhysicalDomain(object, metaclass=ABCMeta):
-
-    def __init__(self, mesh, *, coriolis=None, rotation_vector=None,
-                 is_extruded=True, is_3d=True, is_rotating=True,
+class PhysicalDomain(object):
+    """Base class for defining a physical domain.
+    Default parameters assume a 3D, rotating, spherical domain.
+    """
+    def __init__(self, mesh, *, parameters=None,
+                 rotation_option=None,
+                 is_extruded=True, is_3d=True,
                  on_sphere=True, bc_ids=None):
 
         if not is_3d and not(hasattr(self, "perp")):
             raise ValueError("a perp function must be defined for 2D domains")
 
+        # store mesh and physical parameters class
         self.mesh = mesh
-        self.is_rotating = is_rotating
-        if is_rotating:
-            if coriolis:
-                self.coriolis = coriolis
-            elif rotation_vector:
-                self.rotation_vector = rotation_vector
-            else:
-                raise ValueError("If your domain is rotating, you need to specify a rotation vector or a coriolis expression")
+        self.parameters = parameters
 
+        # check rotation option and set either Omega (the rotation vector) or
+        # the coriolis parameter as required
+        # the necessary constants are specified in the parameters class
+        if rotation_option == "Omega":
+            if not is_3d:
+                raise ValueError("Cannot specify the rotation vector for a 2D domain")
+            # save Omega as the rotation vector
+            self.rotation_vector = parameters.Omega
+
+        elif rotation_option == "f_plane":
+            # set the coriolis parameter to be constant f
+            self.coriolis = parameters.f0
+
+        elif rotation_option == "beta_plane":
+            # set the coriolis parameter to be f + beta*y
+            x = SpatialCoordinate(mesh)
+            f0 = parameters.f0
+            beta = parameters.beta
+            self.coriolis = f0 + beta*x[1]
+
+        elif rotation_option == "trad_f":
+            # set the coriolis parameter to be 2*Omega*sin(latitude)
+            # where Omega is the rotation rate
+            if not on_sphere:
+                raise NotImplementedError("rotation_option %s not implemented non spherical domains" % rotation_option)
+            omega_rate = parameters.omega_rate
+            x = SpatialCoordinate(mesh)
+            radius = sqrt(inner(x, x))
+            self.coriolis = 2*omega_rate*x[2]/radius
+        else:
+            if rotation_option is not None:
+                rotation_options = ["Omega", "f_plane", "beta_plane", "trad_f"]
+                raise ValueError("rotation_option %s unrecognised. rotation_option must be one of: %s" % (rotation_option, [opt for opt in rotation_options]))
+
+        # some booleans to mark whether the domain is extruded, 3D
+        # and/or spherical
         self.is_extruded = is_extruded
         self.is_3d = is_3d
         self.on_sphere = on_sphere
+
+        # store list of bc_ids for applying no normal flow boundary conditions
         if bc_ids is None:
             self.bc_ids = []
         else:
@@ -154,72 +197,125 @@ class PhysicalDomain(object, metaclass=ABCMeta):
 
 class PlaneDomain(PhysicalDomain):
 
-    def __init__(self, L=None, W=None, nx=None, ny=None, mesh=None, *,
-                 coriolis=None, is_rotating=True, bc_ids=None):
+    """Class defining a 2D x-y plane domain.
 
-        if mesh is None and None in [nx, ny]:
+    The user must either pass in a mesh, or the parameters required to
+    construct one. The default behaviour is to construct a doubly
+    periodic mesh and a nonrotating domain.
+
+    :arg mesh: The mesh, if the user prefers to construct their own.
+    :arg parameters: The :class:`Configuration` containing the physical
+    parameters
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the x direction
+    :arg L: The length of the mesh in the x direction
+    :arg W: The width of the mesh in the y direction
+    :arg periodic_direction: May take the value ``"x"``, ``"y"`` or ``"both"``.
+    Defaults to ``"both"``
+    :arg rotation option: May take the value ``"Omega"``, ``"f_plane"``,
+    ``"beta_plane"``, ``"trad_f"`` or ``"None"``. Defaults to ``"None"``,
+    i.e. a nonrotating domain.
+    :arg bc_ids: A list containing the boundary ids for those boundaries on
+    which you wish to apply a no normal flow boundary condition.
+    """
+    def __init__(self, mesh=None, *, parameters=None,
+                 nx=None, ny=None, L=None, W=None,
+                 periodic_direction="both",
+                 rotation_option=None,
+                 bc_ids=None):
+
+        if mesh is None and None in [L, W, nx, ny]:
             raise ValueError("You must provide either a mesh or the parameters to enable a mesh to be constructed.")
 
+        # if the mesh has not been provided then we need to create one
         if mesh is None:
-            mesh = RectangleMesh(nx, ny, L, W)
+            if periodic_direction is not None:
+                mesh = PeriodicRectangleMesh(nx, ny, L, W,
+                                             direction=periodic_direction)
+            else:
+                mesh = RectangleMesh(nx, ny, L, W)
 
-        x, y = SpatialCoordinate(mesh)
-        f0, beta = coriolis
-        coriolis = f0 + beta*y
+        # define a perp function for this domain
         self.perp = lambda u: as_vector([-u[1], u[0]])
 
-        super().__init__(mesh, coriolis=coriolis, is_extruded=False, is_3d=False, is_rotating=is_rotating, on_sphere=False, bc_ids=bc_ids)
+        super().__init__(mesh, parameters=parameters,
+                         rotation_option=rotation_option,
+                         is_extruded=False, is_3d=False,
+                         on_sphere=False,
+                         bc_ids=bc_ids)
 
 
 class SphericalDomain(PhysicalDomain):
+    """Class defining a spherical domain.
 
-    def __init__(self, radius=None, refinement_level=None, degree=None,
-                 nlayers=None, mesh=None, *, coriolis=None,
-                 rotation_vector=None, is_rotating=True):
+    The user must either pass in a mesh, or the parameters required to
+    construct one. The default behaviour is to construct a doubly
+    periodic mesh and a nonrotating domain.
+
+    :arg mesh: The mesh, if the user prefers to construct their own.
+    :arg parameters: The :class:`Configuration` containing the physical
+    parameters
+    :arg radius: The radius of the sphere
+    :arg refinement_level: The number of refinements
+    :arg degree: (optional) polynomial degree of the coordinate space.
+    Defaults to 3 if not provided.
+    :arg ztop: The height position of the model top
+    :arg nlayers: The number of layers in the vertical direction. Defaults
+    to ``"None"``to give a 2D mesh.
+    :arg rotation option: May take the value ``"Omega"``, ``"f_plane"``,
+    ``"beta_plane"``, ``"trad_f"`` or ``"None"``. Defaults to ``"None"``,
+    i.e. a nonrotating domain.
+    """
+
+    def __init__(self, mesh=None, *, parameters=None,
+                 radius=None, refinement_level=None, degree=None,
+                 z_top=None, nlayers=None,
+                 rotation_option=None):
 
         if mesh is None and None in [radius, refinement_level]:
             raise ValueError("You must provide either a mesh or the parameters to enable a mesh to be constructed.")
 
+        # if the mesh has not been provided then we need to create one
         if mesh is None:
-            if degree is None:
-                degree = 3
-            mesh = IcosahedralSphereMesh(radius=radius,
-                                         refinement_level=refinement_level,
-                                         degree=degree)
-            x = SpatialCoordinate(mesh)
-            mesh.init_cell_orientations(x)
-
-        if nlayers is None:
-            is_extruded = False
-            is_3d = False
-            outward_normals = CellNormal(mesh)
-            self.perp = lambda u: cross(outward_normals, u)
-        else:
-            is_extruded = True
-            is_3d = True
-
-        if is_rotating:
-            if is_3d:
-                if rotation_vector is None:
-                    rotation_vector = as_vector((0., 0., 0.5e-4))
-                if coriolis is not None:
-                    raise ValueError("Cannot specify coriolis parameter for a 3d domian")
+            if nlayers is None:
+                # if nlayers is not specified, construct a 2D icosahedral
+                # mesh and define a perp function
+                if degree is None:
+                    degree = 3
+                mesh = IcosahedralSphereMesh(radius=radius,
+                                             refinement_level=refinement_level,
+                                             degree=degree)
+                x = SpatialCoordinate(mesh)
+                mesh.init_cell_orientations(x)
+                is_extruded = False
+                is_3d = False
+                outward_normals = CellNormal(mesh)
+                self.perp = lambda u: cross(outward_normals, u)
             else:
-                if coriolis is None:
-                    x = SpatialCoordinate(mesh)
-                    if radius is None:
-                        radius = sqrt(inner(x, x))
-                        if fabs(radius-6371220.) > 1.:
-                            warning("default coriolis parameters are specified for Earth-sized sphere, which yours does not seem to be")
-                    Omega = 7.292e-5  # rotation rate
-                    coriolis = 2*Omega*x[2]/radius
-                if rotation_vector is not None:
-                    raise ValueError("Cannot specify rotation vector for a 3d domian")
+                # if nlayers is specified, construct a 2D cubed sphere mesh
+                # and extrude it
+                if degree is None:
+                    degree = 2
+                m = CubedSphereMesh(radius=radius,
+                                    refinement_level=refinement_level,
+                                    degree=degree)
+                mesh = ExtrudedMesh(m, layers=nlayers,
+                                    layer_height=z_top/nlayers,
+                                    extrusion_type="radial")
+                is_extruded = True
+                is_3d = True
+        else:
+            # check if mesh is extruded
+            is_extruded = (isinstance(mesh.topology, ExtrudedMeshTopology))
+            if not is_extruded:
+                warning("some things might not work")
+            # check if mesh is 3d
+            is_3d = (mesh.geometric_dimension() == 3)
 
-        super().__init__(mesh, coriolis=coriolis,
-                         rotation_vector=rotation_vector,
+        super().__init__(mesh, parameters=parameters,
+                         rotation_option=rotation_option,
                          is_extruded=is_extruded,
-                         is_3d=is_3d, is_rotating=is_rotating)
+                         is_3d=is_3d)
 
     @property
     def vertical_normal(self):
@@ -230,32 +326,75 @@ class SphericalDomain(PhysicalDomain):
 
 
 class ChannelDomain(PhysicalDomain):
+    """Class defining a 3D channel domain.
 
-    def __init__(self, L=None, W=None, H=None, columns=None, nlayers=None,
-                 mesh=None, *, coriolis=None, rotation_vector=None,
-                 is_3d=True, is_rotating=True):
+    The user must either pass in a mesh, or the parameters required to
+    construct one. The default behaviour is to construct a doubly
+    periodic mesh and a nonrotating domain.
 
-        if mesh is None and None in [L, W, H, columns, nlayers]:
-            raise ValueError("You must provide either a mesh or the parameters to enable a mesh to be constructed.")
+    :arg mesh: The mesh, if the user prefers to construct their own.
+    :arg parameters: The :class:`Configuration` containing the physical
+    parameters
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg nlayers: The number of layers
+    :arg L: The length of the mesh in the x direction
+    :arg W: The width of the mesh in the y direction
+    :arg H: The height of the domain
+    :arg periodic_direction: May take the value ``"x"``, ``"y"`` or ``"both"``.
+    Defaults to ``"both"``
+    :arg rotation option: May take the value ``"Omega"``, ``"f_plane"``,
+    ``"beta_plane"``, ``"trad_f"`` or ``"None"``. Defaults to ``"None"``,
+    i.e. a nonrotating domain.
+    :arg is_3d; boolean, True if domain is 3d, False in the special case
+    that we have a 2d vertical slice.
+    :arg bc_ids: A list containing the boundary ids for those boundaries on
+    which you wish to apply a no normal flow boundary condition.
+    """
 
+    def __init__(self, mesh=None, *, parameters=None,
+                 nx=None, ny=None, nlayers=None, L=None, W=None, H=None,
+                 periodic_direction="both",
+                 rotation_option=None,
+                 is_3d=True, bc_ids=None):
+
+        if mesh is None and None in [L, W, H, nx, ny, nlayers]:
+            raise ValueError("You must provide either a mesh or all the parameters to enable a mesh to be constructed.")
+
+        # if the mesh has not been provided then we need to create one
         if mesh is None:
-            nx, ny = columns
-            m = PeriodicRectangleMesh(nx, ny, L, W, quadrilateral=True)
+            if periodic_direction is not None:
+                m = PeriodicRectangleMesh(nx, ny, L, W,
+                                          direction=periodic_direction,
+                                          quadrilateral=True)
+            else:
+                m = RectangleMesh(nx, ny, L, W, quadrilateral=True)
+                # warn user that constructed mesh is not periodic and
+                # they haven't provided ids to apply no normal flow
+                # boundary conditions
+                if bc_ids is None:
+                    warning("your mesh is not periodic and you have not provided boundary condition ids")
             mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+            is_extruded = True
+        else:
+            # check if mesh is extruded
+            is_extruded = (isinstance(mesh.topology, ExtrudedMeshTopology))
+            if not is_extruded:
+                warning("some things might not work")
 
-        #if is_rotating and rotation_vector is None:
-        #    rotation_vector = as_vector((0., 0., 0.5e-4))
+        # we always apply the no normal flow boundary condition at the
+        # top and bottom - if the user has specified other boundary
+        # ids then add them in without duplicating
+        default_bc_ids = ["top", "bottom"]
+        if bc_ids is not None:
+            bc_ids = list(set(default_bc_ids).union(bc_ids))
+        else:
+            bc_ids = default_bc_ids
 
-        _, y, _ = SpatialCoordinate(mesh)
-        f0, beta = coriolis
-        coriolis = f0 + beta*y
-
-        super().__init__(mesh,
-                         coriolis=coriolis,
-                         rotation_vector=rotation_vector,
-                         is_3d=is_3d,
-                         is_rotating=is_rotating,
-                         on_sphere=False, bc_ids=["top", "bottom"])
+        super().__init__(mesh, parameters=parameters,
+                         rotation_option=rotation_option,
+                         is_3d=is_3d, is_extruded=is_extruded,
+                         on_sphere=False, bc_ids=bc_ids)
 
     @property
     def vertical_normal(self):
@@ -266,42 +405,74 @@ class ChannelDomain(PhysicalDomain):
 
 
 class VerticalSliceDomain(ChannelDomain):
+    """Class defining a 2D (or pseudo-2D) x-z domain.
 
-    def __init__(self, L=None, H=None, columns=None, nlayers=None, mesh=None,
-                 *, coriolis=None, rotation_vector=None,
-                 is_3d=False, is_rotating=False):
+    The user must either pass in a mesh, or the parameters required to
+    construct one. The default behaviour is to construct a
+    mesh periodic in the x (and, if rotating, y) direction and a
+    nonrotating domain.
 
-        if mesh is None and None in [L, H, columns, nlayers]:
+    :arg mesh: The mesh, if the user prefers to construct their own.
+    :arg parameters: The :class:`Configuration` containing the physical
+    parameters
+    :arg nx: The number of cells in the x direction
+    :arg nlayers: The number of layers
+    :arg L: The length of the mesh in the x direction
+    :arg H: The height of the top of the mesh
+    :arg periodic_direction: May take the value ``"x"`` or ``"None"``
+    Defaults to ``"x"``
+    :arg rotation option: May take the value ``"Omega"``, ``"f_plane"``,
+    ``"beta_plane"``, ``"trad_f"`` or ``"None"``. Defaults to ``"None"``,
+    i.e. a nonrotating domain.
+    :arg is_3d: boolean, defaults to False. Set to True if you require a
+    one-element thick vertical slice domain.
+    :arg bc_ids: A list containing the boundary ids for those boundaries on
+    which you wish to apply a no normal flow boundary condition.
+    """
+
+    def __init__(self, mesh=None, *, parameters=None,
+                 nx=None, nlayers=None, L=None, H=None,
+                 periodic_direction="x",
+                 rotation_option=None, is_3d=False, bc_ids=None):
+
+        if mesh is None and None in [L, H, nx, nlayers]:
             raise ValueError("You must provide either a mesh or the parameters to enable a mesh to be constructed.")
 
-        if all([coriolis, rotation_vector]):
-            raise ValueError("You cannot specify both coriolis parameter and rotation_vector")
+        # for a rotating vertical slice domain, we need to have a
+        # component of the velocity in the y direction which requires
+        # a 3D domain
+        if rotation_option is not None and not is_3d:
+            warning("creating a 3d, single element thick mesh as you have a rotating domain.")
+            is_3d = True
 
-        is_rotating = any([coriolis, rotation_vector, is_rotating])
-        if is_rotating:
-            if not is_3d:
-                warning("creating a 3d, single element thick mesh as you have a rotating domain.")
-                is_3d = True
-
+        # if domain is not 3D then we need to specify the perp operator
         if not is_3d:
             self.perp = lambda u: as_vector([-u[1], u[0]])
 
+        # if the mesh has not been provided then we need to create one
         if mesh is None:
+            # if domain is 3d, pass parameters to parent class ChannelDomain
+            # with ny=1 and W=H
             if is_3d:
-                super().__init__(L=L, W=1.e4, H=H, columns=(columns, 1),
-                                 nlayers=nlayers,
-                                 coriolis=coriolis,
-                                 rotation_vector=rotation_vector,
-                                 is_3d=is_3d, is_rotating=is_rotating)
+                super().__init__(parameters=parameters,
+                                 nx=nx, ny=1, nlayers=nlayers,
+                                 L=L, W=H, H=H,
+                                 rotation_option=rotation_option,
+                                 is_3d=is_3d,
+                                 bc_ids=bc_ids)
             else:
-                m = PeriodicIntervalMesh(columns, L)
+                # construct base 1d mesh and extrude, then pass to parent class
+                if periodic_direction is not None:
+                    m = PeriodicIntervalMesh(nx, L)
+                else:
+                    m = IntervalMesh(nx, L)
                 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-                super().__init__(mesh=mesh,
-                                 coriolis=coriolis,
-                                 rotation_vector=rotation_vector,
-                                 is_3d=is_3d, is_rotating=is_rotating)
+                super().__init__(mesh, parameters=parameters,
+                                 rotation_option=rotation_option,
+                                 is_3d=is_3d,
+                                 bc_ids=bc_ids)
         else:
-            super().__init__(mesh=mesh,
-                             coriolis=coriolis,
-                             rotation_vector=rotation_vector,
-                             is_3d=is_3d, is_rotating=is_rotating)
+            super().__init__(mesh, parameters=parameters,
+                             rotation_option=rotation_option,
+                             is_3d=is_3d,
+                             bc_ids=bc_ids)

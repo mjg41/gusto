@@ -13,13 +13,15 @@ def setup_sw(dirname, euler_poincare, vector_manifold):
     H = 5960.
     day = 24.*60.*60.
 
-    domain = SphericalDomain(radius=R, refinement_level=3)
+    parameters = ShallowWaterParameters(H=H)
+    domain = SphericalDomain(parameters=parameters,
+                             radius=R, refinement_level=3,
+                             rotation_option="trad_f")
     fieldlist = ['u', 'D']
     timestepping = TimesteppingParameters(dt=1500.)
     output = OutputParameters(dirname=dirname+"/sw",
                               dumplist_latlon=['D', 'D_error'],
                               steady_state_error_fields=['D', 'u'])
-    parameters = ShallowWaterParameters(H=H)
 
     diagnostic_fields = [RelativeVorticity(), AbsoluteVorticity(),
                          PotentialVorticity(),
@@ -42,7 +44,6 @@ def setup_sw(dirname, euler_poincare, vector_manifold):
                   family="BDM",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   diagnostic_fields=diagnostic_fields,
                   fieldlist=fieldlist)
 
@@ -52,7 +53,7 @@ def setup_sw(dirname, euler_poincare, vector_manifold):
     u_max = 2*pi*R/(12*day)  # Maximum amplitude of the zonal wind (m/s)
     x = SpatialCoordinate(domain.mesh)
     uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
-    Omega = parameters.Omega
+    Omega = parameters.omega_rate
     g = parameters.g
     Dexpr = H - ((R * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R*R)))/g
 

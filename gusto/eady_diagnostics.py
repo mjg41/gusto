@@ -74,7 +74,7 @@ class GeostrophicImbalance(DiagnosticField):
         u = state.fields("u")
         b = state.fields("b")
         p = state.fields("p")
-        f = state.parameters.f
+        f = state.parameters.f0
         Vu = u.function_space()
 
         v = TrialFunction(Vu)
@@ -91,7 +91,7 @@ class GeostrophicImbalance(DiagnosticField):
             imbalanceproblem, solver_parameters={'ksp_type': 'cg'})
 
     def compute(self, state):
-        f = state.parameters.f
+        f = state.parameters.f0
         self.imbalance_solver.solve()
         geostrophic_imbalance = self.imbalance[0]/f
         return self.field.interpolate(geostrophic_imbalance)
@@ -106,7 +106,7 @@ class TrueResidualV(DiagnosticField):
         uold, pold, bold = state.xb.split()
         ubar = 0.5*(unew+uold)
         H = state.parameters.H
-        f = state.parameters.f
+        f = state.parameters.f0
         dbdy = state.parameters.dbdy
         dt = state.timestepping.dt
         x, y, z = SpatialCoordinate(state.mesh)
@@ -170,7 +170,7 @@ class SawyerEliassenU(DiagnosticField):
         psi = TrialFunction(V0)
         xsi = TestFunction(V0)
 
-        f = state.parameters.f
+        f = state.parameters.f0
         H = state.parameters.H
         L = state.parameters.L
         dbdy = state.parameters.dbdy

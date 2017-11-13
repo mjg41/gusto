@@ -20,7 +20,14 @@ columns = 30  # number of columns
 L = 1000000.
 nlayers = 30  # horizontal layers
 H = 10000.
-domain = VerticalSliceDomain(2.*L, H, columns, nlayers, is_rotating=True)
+# class containing physical parameters
+# all values not explicitly set here use the default values provided
+# and documented in configuration.py
+parameters = CompressibleEadyParameters(H=H)
+
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=columns, nlayers=nlayers, L=2.*L, H=H,
+                             rotation_option="Omega")
 
 ##############################################################################
 # set up all the other things that state requires
@@ -47,11 +54,6 @@ output = OutputParameters(dirname='compressible_eady',
                           dumplist=['u', 'rho', 'theta'],
                           perturbation_fields=['rho', 'theta', 'ExnerPi'])
 
-# class containing physical parameters
-# all values not explicitly set here use the default values provided
-# and documented in configuration.py
-parameters = CompressibleEadyParameters(H=H)
-
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber(), VelocityY(),
                      ExnerPi(), ExnerPi(reference=True),
@@ -70,7 +72,6 @@ state = State(domain,
               family="RTCF",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -135,7 +136,7 @@ state.parameters.Pi0 = Pi0
 cp = state.parameters.cp
 dthetady = state.parameters.dthetady
 Pi = exner(theta0, rho0, state)
-f = parameters.f
+f = parameters.f0
 u = cp*dthetady/f*(Pi-Pi0)
 
 # set y component of velocity

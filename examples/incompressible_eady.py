@@ -40,7 +40,17 @@ beta = 1.0
 f = f/beta
 L = beta*L
 
-domain = VerticalSliceDomain(2.*L, H, columns, nlayers, is_rotating=True)
+# class containing physical parameters
+# all values not explicitly set here use the default values provided
+# and documented in configuration.py
+parameters = EadyParameters(H=H, L=L,
+                            deltax=2.*L/float(columns),
+                            deltaz=H/float(nlayers),
+                            fourthorder=True)
+
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=columns, nlayers=nlayers, L=2.*L, H=H,
+                             rotation_option="Omega")
 
 ##############################################################################
 # set up all the other things that state requires
@@ -67,14 +77,6 @@ output = OutputParameters(dirname='incompressible_eady',
                           dumplist=['u', 'p', 'b'],
                           perturbation_fields=['p', 'b'])
 
-# class containing physical parameters
-# all values not explicitly set here use the default values provided
-# and documented in configuration.py
-parameters = EadyParameters(H=H, L=L,
-                            deltax=2.*L/float(columns),
-                            deltaz=H/float(nlayers),
-                            fourthorder=True)
-
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber(), VelocityY(),
                      KineticEnergy(), KineticEnergyY(),
@@ -90,7 +92,6 @@ state = State(domain,
               family="RTCF",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

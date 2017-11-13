@@ -17,7 +17,12 @@ columns = 300  # number of columns
 L = 3.0e5
 nlayers = 10  # horizontal layers
 H = 1.0e4  # Height position of the model top
-domain = VerticalSliceDomain(L, H, columns, nlayers)
+# class containing physical parameters
+# all values not explicitly set here use the default values provided
+# and documented in configuration.py
+parameters = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=columns, nlayers=nlayers, L=L, H=H)
 
 ##############################################################################
 # set up all the other things that state requires
@@ -41,11 +46,6 @@ timestepping = TimesteppingParameters(dt=dt)
 # and documented in configuration.py
 output = OutputParameters(dirname='gw_incompressible', dumpfreq=10, dumplist=['u'], perturbation_fields=['b'])
 
-# class containing physical parameters
-# all values not explicitly set here use the default values provided
-# and documented in configuration.py
-parameters = CompressibleParameters()
-
 # list of diagnostic fields, each defined in a class in diagnostics.py
 diagnostic_fields = [CourantNumber()]
 
@@ -56,7 +56,6 @@ state = State(domain,
               family="CG",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

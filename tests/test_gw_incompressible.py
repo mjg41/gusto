@@ -8,20 +8,20 @@ def setup_gw(dirname):
     L = 1.e5
     H = 1.0e4  # Height position of the model top
 
-    domain = VerticalSliceDomain(L, H, columns, nlayers)
+    parameters = CompressibleParameters()
+    domain = VerticalSliceDomain(parameters=parameters,
+                                 nx=columns, nlayers=nlayers, L=L, H=H)
     dt = 6.0
 
     fieldlist = ['u', 'p', 'b']
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname+"/gw_incompressible", dumplist=['u'])
-    parameters = CompressibleParameters()
 
     state = State(domain,
                   vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist)
 
     # Initial conditions

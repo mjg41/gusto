@@ -14,19 +14,19 @@ columns = 50  # number of columns
 L = 3.0e5
 H = 1.0e4  # Height position of the model top
 
-domain = VerticalSliceDomain(L, H, columns, nlayers)
+parameters = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=columns, nlayers=nlayers, L=L, H=H)
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sk_linear', dumplist=['u'], perturbation_fields=['theta', 'rho'])
-parameters = CompressibleParameters()
 
 state = State(domain,
               vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist)
 
 # Initial conditions

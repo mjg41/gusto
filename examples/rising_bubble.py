@@ -13,12 +13,13 @@ H = 1000.
 nlayers = int(H/10.)
 ncolumns = int(L/10.)
 
-domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
+parameters = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=ncolumns, nlayers=nlayers, L=L, H=H)
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='rb', dumpfreq=10, dumplist=['u'], perturbation_fields=['theta', 'rho'])
-parameters = CompressibleParameters()
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain,
@@ -26,7 +27,6 @@ state = State(domain,
               family="CG",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

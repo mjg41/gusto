@@ -13,19 +13,20 @@ else:
 R = 6371220.
 H = 2000.
 
-domain = SphericalDomain(radius=R, refinement_level=3, degree=3)
+parameters = ShallowWaterParameters(H=H)
+domain = SphericalDomain(parameters=parameters,
+                         radius=R, refinement_level=3, degree=3,
+                         rotation_option="trad_f")
 
 fieldlist = ['u', 'D']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sw_linear_w2', steady_state_error_fields=['u', 'D'])
-parameters = ShallowWaterParameters(H=H)
 
 state = State(domain,
               horizontal_degree=1,
               family="BDM",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist)
 
 # Initial/current conditions
@@ -35,7 +36,7 @@ D0 = state.fields("D")
 u_max = 2*pi*R/(12*day)  # Maximum amplitude of the zonal wind (m/s)
 uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
 g = parameters.g
-Omega = parameters.Omega
+Omega = parameters.omega_rate
 Dexpr = - ((R * Omega * u_max)*(x[2]*x[2]/(R*R)))/g
 u0.project(uexpr)
 D0.interpolate(Dexpr)

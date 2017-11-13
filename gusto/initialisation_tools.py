@@ -171,7 +171,8 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
                   'fieldsplit_1_mg_levels_sub_pc_type': 'ilu'}
 
     PiSolver = LinearVariationalSolver(PiProblem,
-                                       solver_parameters=params)
+                                       solver_parameters=params,
+                                       options_prefix='CompressiblePiSolver')
 
     PiSolver.solve()
     v, Pi = w.split()
@@ -197,7 +198,9 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
         k = state.physical_domain.vertical_normal
         F += g*inner(dv, k)*dx
         rhoproblem = NonlinearVariationalProblem(F, w1, bcs=bcs)
-        rhosolver = NonlinearVariationalSolver(rhoproblem, solver_parameters=params)
+        rhosolver = NonlinearVariationalSolver(rhoproblem,
+                                               solver_parameters=params,
+                                               options_prefix='CompressibleRhoSolver')
         rhosolver.solve()
         v, rho_ = w1.split()
         rho0.assign(rho_)
@@ -215,7 +218,7 @@ def remove_initial_w(u, Vv):
 
 
 def eady_initial_v(state, p0, v):
-    f = state.parameters.f
+    f = state.parameters.f0
     x, y, z = SpatialCoordinate(state.mesh)
 
     # get pressure gradient
@@ -243,7 +246,7 @@ def eady_initial_v(state, p0, v):
 
 
 def compressible_eady_initial_v(state, theta0, rho0, v):
-    f = state.parameters.f
+    f = state.parameters.f0
     cp = state.parameters.cp
 
     # exner function

@@ -17,13 +17,14 @@ H = 10000.
 nlayers = int(H/deltax)
 ncolumns = int(L/deltax)
 
-domain = VerticalSliceDomain(L, H, ncolumns, nlayers)
+params = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=params,
+                             nx=ncolumns, nlayers=nlayers, L=L, H=H)
 diffusion = True
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='moist_bf', dumpfreq=20, dumplist=['u'], perturbation_fields=[])
-params = CompressibleParameters()
 diagnostic_fields = [Theta_e()]
 
 state = State(domain,
@@ -31,7 +32,6 @@ state = State(domain,
               family="CG",
               timestepping=timestepping,
               output=output,
-              parameters=params,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

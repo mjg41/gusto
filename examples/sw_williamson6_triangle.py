@@ -12,12 +12,14 @@ else:
 R = 6371220.
 H = 8000.
 
-domain = SphericalDomain(radius=R, refinement_level=4)
+parameters = ShallowWaterParameters(H=H)
+domain = SphericalDomain(parameters=parameters,
+                         radius=R, refinement_level=4,
+                         rotation_option="trad_f")
 
 fieldlist = ['u', 'D']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sw_rossby_wave_ll', dumpfreq=24, dumplist_latlon=['D'])
-parameters = ShallowWaterParameters(H=H)
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain,
@@ -25,7 +27,6 @@ state = State(domain,
               family="BDM",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 
@@ -36,7 +37,7 @@ D0 = state.fields("D")
 omega = 7.848e-6  # note lower-case, not the same as Omega
 K = 7.848e-6
 g = parameters.g
-Omega = parameters.Omega
+Omega = parameters.omega_rate
 
 theta, lamda = latlon_coords(mesh)
 

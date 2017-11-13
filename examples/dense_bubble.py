@@ -1,5 +1,5 @@
 from gusto import *
-from firedrake import SpatialCoordinate, Constant, DirichletBC, pi, cos, \
+from firedrake import SpatialCoordinate, Constant, pi, cos, \
     Function, sqrt, conditional
 import sys
 
@@ -19,11 +19,12 @@ for delta, dt in res_dt.items():
     nlayers = int(H/delta)  # horizontal layers
     columns = int(L/delta)  # number of columns
 
-    domain = VerticalSliceDomain(L, H, columns, nlayers)
+    parameters = CompressibleParameters()
+    domain = VerticalSliceDomain(parameters=parameters,
+                                 nx=columns, nlayers=nlayers, L=L, H=H)
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname, dumpfreq=5, dumplist=['u'], perturbation_fields=['theta', 'rho'])
-    parameters = CompressibleParameters()
     diagnostic_fields = [CourantNumber()]
 
     state = State(domain,
@@ -31,7 +32,6 @@ for delta, dt in res_dt.items():
                   family="CG",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist,
                   diagnostic_fields=diagnostic_fields)
 

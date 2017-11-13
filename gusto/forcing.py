@@ -44,11 +44,14 @@ class Forcing(object, metaclass=ABCMeta):
         # find out which terms we need
         domain = state.physical_domain
         self.is_extruded = domain.is_extruded
-        self.is_rotating = domain.is_rotating
-        if self.is_rotating and hasattr(domain, "rotation_vector"):
+        if hasattr(domain, "rotation_vector"):
+            self.is_rotating = True
             self.Omega = domain.rotation_vector
-        if self.is_rotating and hasattr(domain, "coriolis"):
+        elif hasattr(domain, "coriolis"):
+            self.is_rotating = True
             self.coriolis = domain.coriolis
+        else:
+            self.is_rotating = False
         self.sponge = state.mu is not None
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms

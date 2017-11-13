@@ -16,12 +16,14 @@ else:
 
 L = 6.0e6
 H = 1.0e4  # Height position of the model top
-domain = VerticalSliceDomain(L, H, columns, nlayers, is_rotating=True)
+parameters = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=columns, nlayers=nlayers, L=L, H=H,
+                             rotation_option="Omega")
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sk_hydrostatic', dumpfreq=50, dumplist=['u'], perturbation_fields=['theta', 'rho'])
-parameters = CompressibleParameters()
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain,
@@ -29,7 +31,6 @@ state = State(domain,
               family="RTCF",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

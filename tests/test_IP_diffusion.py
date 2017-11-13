@@ -8,18 +8,16 @@ def setup_IPdiffusion(dirname, vector, DG):
 
     dt = 0.01
     L = 10.
-    domain = VerticalSliceDomain(L, 10., 50, 50)
+    domain = VerticalSliceDomain(nx=50, nlayers=50, L=L, H=10)
 
     fieldlist = ['u', 'D']
     timestepping = TimesteppingParameters(dt=dt)
-    parameters = CompressibleParameters()
     output = OutputParameters(dirname=dirname)
 
     state = State(domain,
                   vertical_degree=1, horizontal_degree=1,
                   family="CG",
                   timestepping=timestepping,
-                  parameters=parameters,
                   output=output,
                   fieldlist=fieldlist)
 

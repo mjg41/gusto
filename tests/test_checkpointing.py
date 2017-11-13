@@ -10,12 +10,13 @@ def setup_sk(dirname):
     H = 1.0e4  # Height position of the model top
     dt = 6.0
 
-    domain = VerticalSliceDomain(L, H, columns, nlayers)
+    parameters = CompressibleParameters()
+    domain = VerticalSliceDomain(parameters=parameters,
+                                 nx=columns, nlayers=nlayers, L=L, H=H)
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname+"/sk_nonlinear", dumplist=['u'], dumpfreq=5, Verbose=True)
-    parameters = CompressibleParameters()
     diagnostic_fields = [CourantNumber()]
 
     state = State(domain,
@@ -23,7 +24,6 @@ def setup_sk(dirname):
                   family="CG",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist,
                   diagnostic_fields=diagnostic_fields)
 

@@ -12,7 +12,9 @@ else:
 
 L = 3.0e5
 H = 1.0e4
-domain = VerticalSliceDomain(L=L, H=H, columns=150, nlayers=10)
+parameters = CompressibleParameters()
+domain = VerticalSliceDomain(parameters=parameters,
+                             nx=150, nlayers=10, L=L, H=H)
 
 points_x = np.linspace(0., L, 100)
 points_z = [H/2.]
@@ -23,14 +25,12 @@ timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='sk_nonlinear', dumpfreq=1, dumplist=['u'],
                           perturbation_fields=['theta', 'rho'],
                           point_data=[('theta_perturbation', points)])
-parameters = CompressibleParameters()
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain, vertical_degree=1, horizontal_degree=1,
               family="CG",
               timestepping=timestepping,
               output=output,
-              parameters=parameters,
               fieldlist=fieldlist,
               diagnostic_fields=diagnostic_fields)
 

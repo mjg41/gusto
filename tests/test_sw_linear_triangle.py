@@ -11,19 +11,20 @@ def setup_sw(dirname):
     H = 2000.
     day = 24.*60.*60.
 
-    domain = SphericalDomain(radius=R, refinement_level=3)
+    parameters = ShallowWaterParameters(H=H)
+    domain = SphericalDomain(parameters=parameters,
+                             radius=R, refinement_level=3,
+                             rotation_option="trad_f")
 
     fieldlist = ['u', 'D']
     timestepping = TimesteppingParameters(dt=3600.)
     output = OutputParameters(dirname=dirname+"/sw_linear_w2", steady_state_error_fields=['u', 'D'], dumpfreq=12)
-    parameters = ShallowWaterParameters(H=H)
 
     state = State(domain,
                   horizontal_degree=1,
                   family="BDM",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   fieldlist=fieldlist)
 
     # interpolate initial conditions
@@ -34,7 +35,7 @@ def setup_sw(dirname):
     x = SpatialCoordinate(domain.mesh)
     uexpr = as_vector([-u_max*x[1]/R, u_max*x[0]/R, 0.0])
     g = parameters.g
-    Omega = parameters.Omega
+    Omega = parameters.omega_rate
     Dexpr = - ((R * Omega * u_max)*(x[2]*x[2]/(R*R)))/g
     u0.project(uexpr)
     D0.interpolate(Dexpr)
@@ -77,5 +78,5 @@ def test_sw_linear(tmpdir):
     u = data.groups["u"]
     ul2 = uerr["l2"][-1]/u["l2"][0]
 
-    assert Dl2 < 3.e-3
+    assert Dl2 < 4.e-3
     assert ul2 < 6.e-2
