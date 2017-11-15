@@ -3,32 +3,29 @@ from firedrake import PeriodicSquareMesh, exp, SpatialCoordinate, Constant, Func
 
 
 def setup_gaussian(dirname):
-    n = 16
-    L = 1.
-    mesh = PeriodicSquareMesh(n, n, L)
+
+    parameters = ShallowWaterParameters(H=1.0, g=1.0, f0=1)
+    domain = PlaneDomain(nx=16, ny=16, L=1, W=1, parameters=parameters,
+                         rotation_option="f_plane")
 
     fieldlist = ['u', 'D']
-    parameters = ShallowWaterParameters(H=1.0, g=1.0)
     timestepping = TimesteppingParameters(dt=0.1)
     output = OutputParameters(dirname=dirname+'/sw_plane_gaussian_subcycled')
     diagnostic_fields = [CourantNumber()]
 
-    state = State(mesh, horizontal_degree=1,
+    state = State(domain,
+                  horizontal_degree=1,
                   family="BDM",
                   timestepping=timestepping,
                   output=output,
-                  parameters=parameters,
                   diagnostic_fields=diagnostic_fields,
                   fieldlist=fieldlist)
 
     u0 = state.fields("u")
     D0 = state.fields("D")
-    x, y = SpatialCoordinate(mesh)
-    H = Constant(state.parameters.H)
+    x, y = SpatialCoordinate(domain.mesh)
+    H = Constant(parameters.H)
     D0.interpolate(H + exp(-50*((x-0.5)**2 + (y-0.5)**2)))
-    V = FunctionSpace(mesh, "CG", 1)
-    f = state.fields("coriolis", V)
-    f.interpolate(Constant(1.))  # Coriolis frequency (1/s)
 
     state.initialise([("u", u0), ("D", D0)])
 
