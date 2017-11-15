@@ -82,7 +82,7 @@ kappa = parameters.kappa
 Tsurf = 300.
 thetab = Tsurf*exp(N**2*z/g)
 theta_b = Function(Vt).interpolate(thetab)
-print(theta_b.dat.data.min(), theta_b.dat.data.max())
+
 # Calculate hydrostatic Pi
 params = {'pc_type': 'fieldsplit',
           'pc_fieldsplit_type': 'schur',
@@ -121,7 +121,7 @@ compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, solver_par
 p1 = min(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
-print(p0, p1, alpha, beta)
+
 pi_top = (1.-beta)/alpha
 compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=pi_top, solve_for_rho=True, solver_parameters=params)
 
