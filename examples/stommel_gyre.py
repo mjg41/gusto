@@ -18,7 +18,7 @@ domain = PlaneDomain(parameters=parameters,
                      bc_ids=[1, 2, 3, 4])
 fieldlist = ["u", "D"]
 timestepping = TimesteppingParameters(dt=dt)
-output = OutputParameters(dirname='stommel_gyre_ld_is_extra_term', dumpfreq=100)
+output = OutputParameters(dirname='stommel_gyre', dumpfreq=100)
 diagnostic_fields = [CourantNumber()]
 
 state = State(domain,
@@ -49,7 +49,6 @@ linear_dissipation = -gamma*u0
 
 # Set up forcing
 sw_forcing = ShallowWaterForcing(state, euler_poincare=False, extra_terms=wind_stress+linear_dissipation)
-# sw_forcing = ShallowWaterForcing(state, euler_poincare=False, extra_terms=wind_stress, linear_dissipation=True)
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,

@@ -23,7 +23,7 @@ class Forcing(object, metaclass=ABCMeta):
     """
 
     def __init__(self, state, euler_poincare=True, linear=False,
-                 extra_terms=None, moisture=None, linear_dissipation=False):
+                 extra_terms=None, moisture=None):
         self.state = state
         if linear:
             self.euler_poincare = False
@@ -56,7 +56,6 @@ class Forcing(object, metaclass=ABCMeta):
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
         self.moisture = moisture
-        self.linear_dissipation = linear_dissipation
         self.parameters = domain.parameters
 
         # find out where we need to apply no normal flow boundary conditions
@@ -101,8 +100,6 @@ class Forcing(object, metaclass=ABCMeta):
             L += self.topography_term()
         if self.extra_terms is not None:
             L += inner(self.test, self.extra_terms)*dx
-        if self.linear_dissipation:
-            L += self.linear_dissipation_term()
         # scale L
         L = self.scaling * L
         # sponge term has a separate scaling factor as it is always implicit
@@ -428,10 +425,4 @@ class ShallowWaterForcing(Forcing):
         un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
 
         L = g*div(self.test)*b*dx - g*inner(jump(self.test, n), un('+')*b('+') - un('-')*b('-'))*dS
-        return L
-
-    def linear_dissipation_term(self):
-        u0, _ = split(self.x0)
-
-        L = -inner(self.test, 5.e-7*u0)*dx
         return L
