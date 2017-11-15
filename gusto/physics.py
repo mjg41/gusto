@@ -47,7 +47,7 @@ class Condensation(Physics):
         # declare function space
         Vt = self.theta.function_space()
 
-        param = self.state.parameters
+        param = self.state.physical_domain.parameters
 
         # define some parameters as attributes
         dt = self.state.timestepping.dt

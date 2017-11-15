@@ -190,7 +190,6 @@ class State(object):
                  diagnostic_fields=None):
 
         self.physical_domain = physical_domain
-        self.parameters = physical_domain.parameters
         self.mu = sponge_function
         self.timestepping = timestepping
         if output is None:

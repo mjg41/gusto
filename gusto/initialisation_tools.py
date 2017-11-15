@@ -35,7 +35,8 @@ def sphere_to_cartesian(mesh, u_zonal, u_merid):
     return as_vector((cartesian_u_expr, cartesian_v_expr, cartesian_w_expr))
 
 
-def incompressible_hydrostatic_balance(state, b0, p0, top=False, params=None):
+def incompressible_hydrostatic_balance(state, b0, p0, top=False,
+                                       solver_parameters=None):
 
     # get F
     Vv = state.spaces("Vv")
@@ -72,22 +73,22 @@ def incompressible_hydrostatic_balance(state, b0, p0, top=False, params=None):
     L = phi*div(F)*dx
     w1 = Function(WV)
 
-    if params is None:
-        params = {'ksp_type': 'gmres',
-                  'pc_type': 'fieldsplit',
-                  'pc_fieldsplit_type': 'schur',
-                  'pc_fieldsplit_schur_fact_type': 'full',
-                  'pc_fieldsplit_schur_precondition': 'selfp',
-                  'fieldsplit_1_ksp_type': 'preonly',
-                  'fieldsplit_1_pc_type': 'gamg',
-                  'fieldsplit_1_mg_levels_pc_type': 'bjacobi',
-                  'fieldsplit_1_mg_levels_sub_pc_type': 'ilu',
-                  'fieldsplit_0_ksp_type': 'richardson',
-                  'fieldsplit_0_ksp_max_it': 4,
-                  'ksp_atol': 1.e-08,
-                  'ksp_rtol': 1.e-08}
+    if solver_parameters is None:
+        solver_parameters = {'ksp_type': 'gmres',
+                             'pc_type': 'fieldsplit',
+                             'pc_fieldsplit_type': 'schur',
+                             'pc_fieldsplit_schur_fact_type': 'full',
+                             'pc_fieldsplit_schur_precondition': 'selfp',
+                             'fieldsplit_1_ksp_type': 'preonly',
+                             'fieldsplit_1_pc_type': 'gamg',
+                             'fieldsplit_1_mg_levels_pc_type': 'bjacobi',
+                             'fieldsplit_1_mg_levels_sub_pc_type': 'ilu',
+                             'fieldsplit_0_ksp_type': 'richardson',
+                             'fieldsplit_0_ksp_max_it': 4,
+                             'ksp_atol': 1.e-08,
+                             'ksp_rtol': 1.e-08}
 
-    solve(a == L, w1, bcs=bcs, solver_parameters=params)
+    solve(a == L, w1, bcs=bcs, solver_parameters=solver_parameters)
 
     v, pprime = w1.split()
     p0.project(pprime)
@@ -97,7 +98,7 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
                                      top=False, pi_boundary=Constant(1.0),
                                      water_t=None,
                                      solve_for_rho=False,
-                                     params=None):
+                                     solver_parameters=None):
     """
     Compute a hydrostatically balanced density given a potential temperature
     profile.
@@ -121,7 +122,7 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
 
     n = FacetNormal(state.mesh)
 
-    cp = state.parameters.cp
+    cp = state.physical_domain.parameters.cp
 
     # add effect of density of water upon theta
     theta = theta0
@@ -142,7 +143,7 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
         bstring = "top"
 
     arhs = -cp*inner(dv, n)*theta*pi_boundary*bmeasure
-    g = state.parameters.g
+    g = state.physical_domain.parameters.g
     k = state.physical_domain.vertical_normal
     arhs -= g*inner(dv, k)*dx
 
@@ -151,27 +152,27 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
     w = Function(W)
     PiProblem = LinearVariationalProblem(alhs, arhs, w, bcs=bcs)
 
-    if params is None:
-        params = {'pc_type': 'fieldsplit',
-                  'pc_fieldsplit_type': 'schur',
-                  'ksp_type': 'gmres',
-                  'ksp_monitor_true_residual': True,
-                  'ksp_max_it': 100,
-                  'ksp_gmres_restart': 50,
-                  'pc_fieldsplit_schur_fact_type': 'FULL',
-                  'pc_fieldsplit_schur_precondition': 'selfp',
-                  'fieldsplit_0_ksp_type': 'richardson',
-                  'fieldsplit_0_ksp_max_it': 5,
-                  'fieldsplit_0_pc_type': 'gamg',
-                  'fieldsplit_1_pc_gamg_sym_graph': True,
-                  'fieldsplit_1_mg_levels_ksp_type': 'chebyshev',
-                  'fieldsplit_1_mg_levels_ksp_chebyshev_esteig': True,
-                  'fieldsplit_1_mg_levels_ksp_max_it': 5,
-                  'fieldsplit_1_mg_levels_pc_type': 'bjacobi',
-                  'fieldsplit_1_mg_levels_sub_pc_type': 'ilu'}
+    if solver_parameters is None:
+        solver_parameters = {'pc_type': 'fieldsplit',
+                             'pc_fieldsplit_type': 'schur',
+                             'ksp_type': 'gmres',
+                             'ksp_monitor_true_residual': True,
+                             'ksp_max_it': 100,
+                             'ksp_gmres_restart': 50,
+                             'pc_fieldsplit_schur_fact_type': 'FULL',
+                             'pc_fieldsplit_schur_precondition': 'selfp',
+                             'fieldsplit_0_ksp_type': 'richardson',
+                             'fieldsplit_0_ksp_max_it': 5,
+                             'fieldsplit_0_pc_type': 'gamg',
+                             'fieldsplit_1_pc_gamg_sym_graph': True,
+                             'fieldsplit_1_mg_levels_ksp_type': 'chebyshev',
+                             'fieldsplit_1_mg_levels_ksp_chebyshev_esteig': True,
+                             'fieldsplit_1_mg_levels_ksp_max_it': 5,
+                             'fieldsplit_1_mg_levels_pc_type': 'bjacobi',
+                             'fieldsplit_1_mg_levels_sub_pc_type': 'ilu'}
 
     PiSolver = LinearVariationalSolver(PiProblem,
-                                       solver_parameters=params,
+                                       solver_parameters=solver_parameters,
                                        options_prefix='CompressiblePiSolver')
 
     PiSolver.solve()
@@ -179,9 +180,10 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
     if pi0 is not None:
         pi0.assign(Pi)
 
-    kappa = state.parameters.kappa
-    R_d = state.parameters.R_d
-    p_0 = state.parameters.p_0
+    params = state.physical_domain.parameters
+    kappa = params.kappa
+    R_d = params.R_d
+    p_0 = params.p_0
 
     if solve_for_rho:
         w1 = Function(W)
@@ -198,9 +200,9 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
         k = state.physical_domain.vertical_normal
         F += g*inner(dv, k)*dx
         rhoproblem = NonlinearVariationalProblem(F, w1, bcs=bcs)
-        rhosolver = NonlinearVariationalSolver(rhoproblem,
-                                               solver_parameters=params,
-                                               options_prefix='CompressibleRhoSolver')
+        rhosolver = NonlinearVariationalSolver(
+            rhoproblem, solver_parameters=solver_parameters,
+            options_prefix='CompressibleRhoSolver')
         rhosolver.solve()
         v, rho_ = w1.split()
         rho0.assign(rho_)
@@ -218,7 +220,7 @@ def remove_initial_w(u, Vv):
 
 
 def eady_initial_v(state, p0, v):
-    f = state.parameters.f0
+    f = state.physical_domain.parameters.f0
     x, y, z = SpatialCoordinate(state.mesh)
 
     # get pressure gradient
@@ -246,12 +248,13 @@ def eady_initial_v(state, p0, v):
 
 
 def compressible_eady_initial_v(state, theta0, rho0, v):
-    f = state.parameters.f0
-    cp = state.parameters.cp
+    params = state.physical_domain.parameters
+    f = params.f0
+    cp = params.cp
 
     # exner function
     Vr = rho0.function_space()
-    Pi_exp = exner(theta0, rho0, state)
+    Pi_exp = exner(theta0, rho0, params)
     Pi = Function(Vr).interpolate(Pi_exp)
 
     # get Pi gradient
@@ -277,12 +280,12 @@ def compressible_eady_initial_v(state, theta0, rho0, v):
     return v
 
 
-def calculate_Pi0(state, theta0, rho0):
+def calculate_Pi0(physical_domain, theta0, rho0):
     # exner function
     Vr = rho0.function_space()
-    Pi_exp = exner(theta0, rho0, state)
+    Pi_exp = exner(theta0, rho0, physical_domain.parameters)
     Pi = Function(Vr).interpolate(Pi_exp)
-    Pi0 = assemble(Pi*dx)/assemble(Constant(1)*dx(domain=state.mesh))
+    Pi0 = assemble(Pi*dx)/assemble(Constant(1)*dx(domain=physical_domain.mesh))
 
     return Pi0
 
@@ -308,7 +311,7 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
     Vv = state.spaces("Vv")
     n = FacetNormal(state.mesh)
 
-    param = state.parameters
+    param = state.physical_domain.parameters
 
     # define some parameters as attributes
     R_d = param.R_d
@@ -330,14 +333,14 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
         warning("default quadrature degree most likely not sufficient for this degree element")
     quadrature_degree = (5, 5)
 
-    params = {'ksp_type': 'preonly',
-              'ksp_monitor_true_residual': True,
-              'ksp_converged_reason': True,
-              'snes_converged_reason': True,
-              'ksp_max_it': 100,
-              'mat_type': 'aij',
-              'pc_type': 'lu',
-              'pc_factor_mat_solver_package': 'mumps'}
+    solver_parameters = {'ksp_type': 'preonly',
+                         'ksp_monitor_true_residual': True,
+                         'ksp_converged_reason': True,
+                         'snes_converged_reason': True,
+                         'ksp_max_it': 100,
+                         'mat_type': 'aij',
+                         'pc_type': 'lu',
+                         'pc_factor_mat_solver_package': 'mumps'}
 
     theta0.interpolate(theta_e)
     water_v0.interpolate(water_t)
@@ -375,7 +378,8 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
          + phi * w_sat * dxp)
 
     problem = NonlinearVariationalProblem(F, z)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    solver = NonlinearVariationalSolver(problem,
+                                        solver_parameters=solver_parameters)
 
     theta_v, w_v = z.split()
 
@@ -427,7 +431,8 @@ def moist_hydrostatic_balance(state, theta_e, water_t, pi_boundary=Constant(1.0)
     bcs = [DirichletBC(Z.sub(3), 0.0, "top")]
 
     problem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    solver = NonlinearVariationalSolver(problem,
+                                        solver_parameters=solver_parameters)
 
     solver.solve()
 

@@ -57,6 +57,7 @@ class Forcing(object, metaclass=ABCMeta):
         self.extra_terms = extra_terms
         self.moisture = moisture
         self.linear_dissipation = linear_dissipation
+        self.parameters = domain.parameters
 
         # find out where we need to apply no normal flow boundary conditions
         self.bc_ids = domain.bc_ids
@@ -153,7 +154,7 @@ class CompressibleForcing(Forcing):
     def pressure_gradient_term(self):
 
         u0, rho0, theta0 = split(self.x0)
-        cp = self.state.parameters.cp
+        cp = self.parameters.cp
         n = FacetNormal(self.state.mesh)
         Vtheta = self.state.spaces("HDiv_v")
 
@@ -167,7 +168,7 @@ class CompressibleForcing(Forcing):
                 water_t += self.state.fields(water)
             theta = theta / (1 + water_t)
 
-        pi = exner(theta0, rho0, self.state)
+        pi = exner(theta0, rho0, self.parameters)
 
         L = (
             + cp*div(theta*self.test)*pi*dx
@@ -177,7 +178,7 @@ class CompressibleForcing(Forcing):
 
     def gravity_term(self):
 
-        g = self.state.parameters.g
+        g = self.parameters.g
         k = self.state.physical_domain.vertical_normal
         L = -g*inner(self.test, k)*dx
 
@@ -185,13 +186,13 @@ class CompressibleForcing(Forcing):
 
     def theta_forcing(self):
 
-        cv = self.state.parameters.cv
-        cp = self.state.parameters.cp
-        c_vv = self.state.parameters.c_vv
-        c_pv = self.state.parameters.c_pv
-        c_pl = self.state.parameters.c_pl
-        R_d = self.state.parameters.R_d
-        R_v = self.state.parameters.R_v
+        cv = self.parameters.cv
+        cp = self.parameters.cp
+        c_vv = self.parameters.c_vv
+        c_pv = self.parameters.c_pv
+        c_pl = self.parameters.c_pl
+        R_d = self.parameters.R_d
+        R_v = self.parameters.R_v
 
         u0, _, theta0 = split(self.x0)
         water_v = self.state.fields('water_v')
@@ -233,29 +234,29 @@ class CompressibleForcing(Forcing):
             theta_out += self.thetaF
 
 
-def exner(theta, rho, state):
+def exner(theta, rho, parameters):
     """
     Compute the exner function.
     """
-    R_d = state.parameters.R_d
-    p_0 = state.parameters.p_0
-    kappa = state.parameters.kappa
+    R_d = parameters.R_d
+    p_0 = parameters.p_0
+    kappa = parameters.kappa
 
     return (R_d/p_0)**(kappa/(1-kappa))*pow(rho*theta, kappa/(1-kappa))
 
 
-def exner_rho(theta, rho, state):
-    R_d = state.parameters.R_d
-    p_0 = state.parameters.p_0
-    kappa = state.parameters.kappa
+def exner_rho(theta, rho, parameters):
+    R_d = parameters.R_d
+    p_0 = parameters.p_0
+    kappa = parameters.kappa
 
     return (R_d/p_0)**(kappa/(1-kappa))*pow(rho*theta, kappa/(1-kappa)-1)*theta*kappa/(1-kappa)
 
 
-def exner_theta(theta, rho, state):
-    R_d = state.parameters.R_d
-    p_0 = state.parameters.p_0
-    kappa = state.parameters.kappa
+def exner_theta(theta, rho, parameters):
+    R_d = parameters.R_d
+    p_0 = parameters.p_0
+    kappa = parameters.kappa
 
     return (R_d/p_0)**(kappa/(1-kappa))*pow(rho*theta, kappa/(1-kappa)-1)*rho*kappa/(1-kappa)
 
@@ -310,8 +311,8 @@ class EadyForcing(IncompressibleForcing):
     def forcing_term(self):
 
         L = Forcing.forcing_term(self)
-        dbdy = self.state.parameters.dbdy
-        H = self.state.parameters.H
+        dbdy = self.parameters.dbdy
+        H = self.parameters.H
         Vp = self.state.spaces("DG")
         _, _, z = SpatialCoordinate(self.state.mesh)
         eady_exp = Function(Vp).interpolate(z-H/2.)
@@ -324,7 +325,7 @@ class EadyForcing(IncompressibleForcing):
         super(EadyForcing, self)._build_forcing_solvers()
 
         # b_forcing
-        dbdy = self.state.parameters.dbdy
+        dbdy = self.parameters.dbdy
         Vb = self.state.spaces("HDiv_v")
         F = TrialFunction(Vb)
         gamma = TestFunction(Vb)
@@ -357,12 +358,12 @@ class CompressibleEadyForcing(CompressibleForcing):
 
         # L = super(EadyForcing, self).forcing_term()
         L = Forcing.forcing_term(self)
-        dthetady = self.state.parameters.dthetady
-        Pi0 = self.state.parameters.Pi0
-        cp = self.state.parameters.cp
+        dthetady = self.parameters.dthetady
+        Pi0 = self.parameters.Pi0
+        cp = self.parameters.cp
 
         _, rho0, theta0 = split(self.x0)
-        Pi = exner(theta0, rho0, self.state)
+        Pi = exner(theta0, rho0, self.parameters)
         Pi_0 = Constant(Pi0)
 
         L += self.scaling*cp*dthetady*(Pi-Pi_0)*inner(self.test, as_vector([0., 1., 0.]))*dx  # Eady forcing
@@ -372,7 +373,7 @@ class CompressibleEadyForcing(CompressibleForcing):
 
         super(CompressibleEadyForcing, self)._build_forcing_solvers()
         # theta_forcing
-        dthetady = self.state.parameters.dthetady
+        dthetady = self.parameters.dthetady
         Vt = self.state.spaces("HDiv_v")
         F = TrialFunction(Vt)
         gamma = TestFunction(Vt)
@@ -408,7 +409,7 @@ class ShallowWaterForcing(Forcing):
 
     def pressure_gradient_term(self):
 
-        g = self.state.parameters.g
+        g = self.parameters.g
         u0, D0 = split(self.x0)
         n = FacetNormal(self.state.mesh)
         un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
@@ -419,7 +420,7 @@ class ShallowWaterForcing(Forcing):
         return L
 
     def topography_term(self):
-        g = self.state.parameters.g
+        g = self.parameters.g
         u0, _ = split(self.x0)
         b = self.state.fields("topography")
         n = FacetNormal(self.state.mesh)

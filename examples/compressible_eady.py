@@ -129,13 +129,13 @@ compressible_hydrostatic_balance(state, theta_b, rho_b)
 compressible_hydrostatic_balance(state, theta0, rho0)
 
 # set Pi0
-Pi0 = calculate_Pi0(state, theta0, rho0)
-state.parameters.Pi0 = Pi0
+Pi0 = calculate_Pi0(domain, theta0, rho0)
+domain.parameters.Pi0 = Pi0
 
 # set x component of velocity
-cp = state.parameters.cp
-dthetady = state.parameters.dthetady
-Pi = exner(theta0, rho0, state)
+cp = parameters.cp
+dthetady = parameters.dthetady
+Pi = exner(theta0, rho0, parameters)
 f = parameters.f0
 u = cp*dthetady/f*(Pi-Pi0)
 

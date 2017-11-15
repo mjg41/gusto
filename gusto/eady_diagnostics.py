@@ -43,7 +43,7 @@ class EadyPotentialEnergy(Energy):
         x, y, z = SpatialCoordinate(state.mesh)
         b = state.fields("b")
         bbar = state.fields("bbar")
-        H = state.parameters.H
+        H = state.physical_domain.parameters.H
         potential = -(z-H/2)*(b-bbar)
         return self.field.interpolate(potential)
 
@@ -53,14 +53,15 @@ class CompressibleEadyPotentialEnergy(Energy):
 
     def compute(self, state):
         x, y, z = SpatialCoordinate(state.mesh)
-        g = state.parameters.g
-        cp = state.parameters.cp
-        cv = state.parameters.cv
-        Pi0 = state.parameters.Pi0
+        params = state.physical_domain.parameters
+        g = params.g
+        cp = params.cp
+        cv = params.cv
+        Pi0 = params.Pi0
 
         rho = state.fields("rho")
         theta = state.fields("theta")
-        Pi = exner(theta, rho, state)
+        Pi = exner(theta, rho, params)
 
         potential = rho*(g*z + cv*Pi*theta - cp*Pi0*theta)
         return self.field.interpolate(potential)
@@ -74,7 +75,7 @@ class GeostrophicImbalance(DiagnosticField):
         u = state.fields("u")
         b = state.fields("b")
         p = state.fields("p")
-        f = state.parameters.f0
+        f = state.physical_domain.parameters.f0
         Vu = u.function_space()
 
         v = TrialFunction(Vu)
@@ -91,7 +92,7 @@ class GeostrophicImbalance(DiagnosticField):
             imbalanceproblem, solver_parameters={'ksp_type': 'cg'})
 
     def compute(self, state):
-        f = state.parameters.f0
+        f = state.physical_domain.parameters.f0
         self.imbalance_solver.solve()
         geostrophic_imbalance = self.imbalance[0]/f
         return self.field.interpolate(geostrophic_imbalance)
@@ -105,9 +106,10 @@ class TrueResidualV(DiagnosticField):
         unew, pnew, bnew = state.xn.split()
         uold, pold, bold = state.xb.split()
         ubar = 0.5*(unew+uold)
-        H = state.parameters.H
-        f = state.parameters.f0
-        dbdy = state.parameters.dbdy
+        params = state.physical_domain.parameters
+        H = params.H
+        f = params.f0
+        dbdy = params.dbdy
         dt = state.timestepping.dt
         x, y, z = SpatialCoordinate(state.mesh)
         V = FunctionSpace(state.mesh, "DG", 0)
@@ -170,10 +172,11 @@ class SawyerEliassenU(DiagnosticField):
         psi = TrialFunction(V0)
         xsi = TestFunction(V0)
 
-        f = state.parameters.f0
-        H = state.parameters.H
-        L = state.parameters.L
-        dbdy = state.parameters.dbdy
+        params = state.physical_domain.parameters
+        f = params.f0
+        H = params.H
+        L = params.L
+        dbdy = params.dbdy
         x, y, z = SpatialCoordinate(state.mesh)
 
         bcs = [DirichletBC(V0, 0., "bottom"),
@@ -193,8 +196,8 @@ class SawyerEliassenU(DiagnosticField):
             eps = Constant(0.0001)
             brennersigma = Constant(10.0)
             n = FacetNormal(state.mesh)
-            deltax = Constant(state.parameters.deltax)
-            deltaz = Constant(state.parameters.deltaz)
+            deltax = Constant(params.deltax)
+            deltaz = Constant(params.deltaz)
 
             nn = as_matrix([[sqrt(brennersigma/Constant(deltax)), 0., 0.],
                             [0., 0., 0.],

@@ -103,7 +103,7 @@ params = {'pc_type': 'fieldsplit',
           'fieldsplit_1_sub_pc_type': 'ilu'}
 Pi = Function(Vr)
 rho_b = Function(Vr)
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=0.5, params=params)
+compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=0.5, solver_parameters=params)
 
 
 def min(f):
@@ -117,13 +117,13 @@ void minify(double *a, double *b) {
 
 
 p0 = min(Pi)
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, params=params)
+compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, solver_parameters=params)
 p1 = min(Pi)
 alpha = 2.*(p1-p0)
 beta = p1-alpha
 print(p0, p1, alpha, beta)
 pi_top = (1.-beta)/alpha
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=pi_top, solve_for_rho=True, params=params)
+compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, top=True, pi_boundary=pi_top, solve_for_rho=True, solver_parameters=params)
 
 theta0.assign(theta_b)
 rho0.assign(rho_b)

@@ -29,6 +29,7 @@ class TimesteppingSolver(object, metaclass=ABCMeta):
                  overwrite_solver_parameters=False):
 
         self.state = state
+        self.parameters = state.physical_domain.parameters
 
         if solver_parameters is not None:
             if not overwrite_solver_parameters:
@@ -110,7 +111,7 @@ class CompressibleSolver(TimesteppingSolver):
         state = self.state      # just cutting down line length a bit
         dt = state.timestepping.dt
         beta = dt*state.timestepping.alpha
-        cp = state.parameters.cp
+        cp = self.parameters.cp
         mu = state.mu
         Vu = state.spaces("HDiv")
         Vtheta = state.spaces("HDiv_v")
@@ -129,9 +130,9 @@ class CompressibleSolver(TimesteppingSolver):
         # Get background fields
         thetabar = state.fields("thetabar")
         rhobar = state.fields("rhobar")
-        pibar = exner(thetabar, rhobar, state)
-        pibar_rho = exner_rho(thetabar, rhobar, state)
-        pibar_theta = exner_theta(thetabar, rhobar, state)
+        pibar = exner(thetabar, rhobar, self.parameters)
+        pibar_rho = exner_rho(thetabar, rhobar, self.parameters)
+        pibar_theta = exner_theta(thetabar, rhobar, self.parameters)
 
         # Analytical (approximate) elimination of theta
         k = state.physical_domain.vertical_normal  # Upward pointing unit vector
@@ -418,8 +419,8 @@ class ShallowWaterSolver(TimesteppingSolver):
 
     def _setup_solver(self):
         state = self.state
-        H = state.parameters.H
-        g = state.parameters.g
+        H = self.parameters.H
+        g = self.parameters.g
         beta = state.timestepping.dt*state.timestepping.alpha
 
         # Split up the rhs vector (symbolically)

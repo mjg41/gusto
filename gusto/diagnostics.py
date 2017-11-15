@@ -183,7 +183,7 @@ class ShallowWaterPotentialEnergy(Energy):
     name = "ShallowWaterPotentialEnergy"
 
     def compute(self, state):
-        g = state.parameters.g
+        g = state.physical_domain.parameters.g
         D = state.fields("D")
         energy = 0.5*g*D**2
         return self.field.interpolate(energy)
@@ -256,7 +256,7 @@ class ExnerPi(DiagnosticField):
     def compute(self, state):
         rho = state.fields(self.rho_name)
         theta = state.fields(self.theta_name)
-        Pi = exner(theta, rho, state)
+        Pi = exner(theta, rho, state.physical_domain.parameters)
         return self.field.interpolate(Pi)
 
 
@@ -269,7 +269,7 @@ class Theta_e(DiagnosticField):
             super(Theta_e, self).setup(state, space=space)
 
     def compute(self, state):
-        X = state.parameters
+        X = state.physical_domain.parameters
         p_0 = X.p_0
         R_v = X.R_v
         R_d = X.R_d
@@ -299,7 +299,7 @@ class InternalEnergy(DiagnosticField):
             super(InternalEnergy, self).setup(state, space=space)
 
     def compute(self, state):
-        X = state.parameters
+        X = state.physical_domain.parameters
         p_0 = X.p_0
         R_v = X.R_v
         R_d = X.R_d
