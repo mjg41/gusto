@@ -182,7 +182,6 @@ class State(object):
     def __init__(self, physical_domain,
                  vertical_degree=None, horizontal_degree=1,
                  family="RT",
-                 sponge_function=None,
                  timestepping=None,
                  output=None,
                  diagnostics=None,
@@ -190,7 +189,6 @@ class State(object):
                  diagnostic_fields=None):
 
         self.physical_domain = physical_domain
-        self.mu = sponge_function
         self.timestepping = timestepping
         if output is None:
             raise RuntimeError("You must provide a directory name for dumping results")

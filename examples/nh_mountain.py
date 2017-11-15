@@ -35,9 +35,6 @@ else:
 new_coords = Function(Vc).interpolate(xexpr)
 mesh = Mesh(new_coords)
 
-parameters = CompressibleParameters(g=9.80665)
-domain = VerticalSliceDomain(mesh, parameters=parameters)
-
 # sponge function
 W_DG = FunctionSpace(mesh, "DG", 2)
 x, z = SpatialCoordinate(mesh)
@@ -45,6 +42,10 @@ zc = H-10000.
 mubar = 0.15/dt
 mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = Function(W_DG).interpolate(mu_top)
+
+parameters = CompressibleParameters(g=9.80665)
+domain = VerticalSliceDomain(mesh, parameters=parameters, sponge_function=mu)
+
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='nh_mountain_smootherz', dumpfreq=18, dumplist=['u'], perturbation_fields=['theta', 'rho'])
@@ -53,7 +54,6 @@ diagnostic_fields = [CourantNumber(), VelocityZ()]
 state = State(domain,
               vertical_degree=1, horizontal_degree=1,
               family="CG",
-              sponge_function=mu,
               timestepping=timestepping,
               output=output,
               fieldlist=fieldlist,

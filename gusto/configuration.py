@@ -356,7 +356,8 @@ class ChannelDomain(PhysicalDomain):
                  nx=None, ny=None, nlayers=None, L=None, W=None, H=None,
                  periodic_direction="both",
                  rotation_option=None,
-                 is_3d=True, bc_ids=None):
+                 is_3d=True, bc_ids=None,
+                 sponge_function=None):
 
         if mesh is None and None in [L, W, H, nx, ny, nlayers]:
             raise ValueError("You must provide either a mesh or all the parameters to enable a mesh to be constructed.")
@@ -390,6 +391,9 @@ class ChannelDomain(PhysicalDomain):
             bc_ids = list(set(default_bc_ids).union(bc_ids))
         else:
             bc_ids = default_bc_ids
+
+        if sponge_function is not None:
+            self.sponge_function = sponge_function
 
         super().__init__(mesh, parameters=parameters,
                          rotation_option=rotation_option,
@@ -433,7 +437,9 @@ class VerticalSliceDomain(ChannelDomain):
     def __init__(self, mesh=None, *, parameters=None,
                  nx=None, nlayers=None, L=None, H=None,
                  periodic_direction="x",
-                 rotation_option=None, is_3d=False, bc_ids=None):
+                 rotation_option=None,
+                 is_3d=False, bc_ids=None,
+                 sponge_function=None):
 
         if mesh is None and None in [L, H, nx, nlayers]:
             raise ValueError("You must provide either a mesh or the parameters to enable a mesh to be constructed.")
@@ -459,7 +465,8 @@ class VerticalSliceDomain(ChannelDomain):
                                  L=L, W=H, H=H,
                                  rotation_option=rotation_option,
                                  is_3d=is_3d,
-                                 bc_ids=bc_ids)
+                                 bc_ids=bc_ids,
+                                 sponge_function=sponge_function)
             else:
                 # construct base 1d mesh and extrude, then pass to parent class
                 if periodic_direction is not None:
@@ -470,9 +477,11 @@ class VerticalSliceDomain(ChannelDomain):
                 super().__init__(mesh, parameters=parameters,
                                  rotation_option=rotation_option,
                                  is_3d=is_3d,
-                                 bc_ids=bc_ids)
+                                 bc_ids=bc_ids,
+                                 sponge_function=sponge_function)
         else:
             super().__init__(mesh, parameters=parameters,
                              rotation_option=rotation_option,
                              is_3d=is_3d,
-                             bc_ids=bc_ids)
+                             bc_ids=bc_ids,
+                             sponge_function=sponge_function)

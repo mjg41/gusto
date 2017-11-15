@@ -52,7 +52,7 @@ class Forcing(object, metaclass=ABCMeta):
             self.coriolis = domain.coriolis
         else:
             self.is_rotating = False
-        self.sponge = state.mu is not None
+        self.sponge = hasattr(domain, "sponge_function")
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
         self.moisture = moisture
@@ -64,7 +64,7 @@ class Forcing(object, metaclass=ABCMeta):
 
         # some constants to use for scaling terms
         self.scaling = Constant(1.)
-        self.mu_scaling = Constant(1.)
+        self.implicit = Constant(1.)
 
         self._build_forcing_solvers()
 
@@ -77,8 +77,9 @@ class Forcing(object, metaclass=ABCMeta):
 
     def sponge_term(self):
         u0 = split(self.x0)[0]
+        mu = self.state.physical_domain.sponge_function
         k = self.state.physical_domain.vertical_normal
-        return self.state.mu*inner(self.test, k)*inner(u0, k)*dx
+        return mu*inner(self.test, k)*inner(u0, k)*dx
 
     def euler_poincare_term(self):
         u0 = split(self.x0)[0]
@@ -106,7 +107,7 @@ class Forcing(object, metaclass=ABCMeta):
         L = self.scaling * L
         # sponge term has a separate scaling factor as it is always implicit
         if self.sponge:
-            L -= self.mu_scaling*self.sponge_term()
+            L -= self.implicit*self.state.timestepping.dt*self.sponge_term()
         return L
 
     def _build_forcing_solvers(self):
@@ -131,13 +132,13 @@ class Forcing(object, metaclass=ABCMeta):
         :arg x_in: :class:`.Function` object
         :arg x_nl: :class:`.Function` object
         :arg x_out: :class:`.Function` object
-        :arg mu_alpha: scale for sponge term, if present
+        :arg implicit: boolean, if True then include implicit terms
         """
         self.scaling.assign(scaling)
         self.x0.assign(x_nl)
-        mu_scaling = kwargs.get("mu_alpha")
-        if mu_scaling is not None:
-            self.mu_scaling.assign(mu_scaling)
+        implicit = kwargs.get("implicit")
+        if implicit is not None:
+            self.implicit.assign(int(implicit))
         self.u_forcing_solver.solve()  # places forcing in self.uF
 
         uF = x_out.split()[0]

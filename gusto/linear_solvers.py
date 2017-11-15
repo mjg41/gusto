@@ -112,7 +112,6 @@ class CompressibleSolver(TimesteppingSolver):
         dt = state.timestepping.dt
         beta = dt*state.timestepping.alpha
         cp = self.parameters.cp
-        mu = state.mu
         Vu = state.spaces("HDiv")
         Vtheta = state.spaces("HDiv_v")
         Vrho = state.spaces("DG")
@@ -174,7 +173,8 @@ class CompressibleSolver(TimesteppingSolver):
             + beta*jump(phi*u, n)*avg(rhobar)*(dS_v + dS_h)
         )
 
-        if mu is not None:
+        if hasattr(state.physical_domain, "sponge_function"):
+            mu = state.physical_domain.sponge_function
             eqn += dt*mu*inner(w, k)*inner(u, k)*dx
         aeqn = lhs(eqn)
         Leqn = rhs(eqn)
@@ -270,7 +270,6 @@ class IncompressibleSolver(TimesteppingSolver):
         state = self.state      # just cutting down line length a bit
         dt = state.timestepping.dt
         beta = dt*state.timestepping.alpha
-        mu = state.mu
         Vu = state.spaces("HDiv")
         Vb = state.spaces("HDiv_v")
         Vp = state.spaces("DG")
@@ -301,7 +300,8 @@ class IncompressibleSolver(TimesteppingSolver):
             + phi*div(u)*dx
         )
 
-        if mu is not None:
+        if hasattr(state.physical_domain, "sponge_function"):
+            mu = state.physical_domain.sponge_function
             eqn += dt*mu*inner(w, k)*inner(u, k)*dx
         aeqn = lhs(eqn)
         Leqn = rhs(eqn)
