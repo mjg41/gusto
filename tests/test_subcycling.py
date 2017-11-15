@@ -1,5 +1,5 @@
 from gusto import *
-from firedrake import PeriodicSquareMesh, exp, SpatialCoordinate, Constant, FunctionSpace
+from firedrake import exp, SpatialCoordinate, Constant
 
 
 def setup_gaussian(dirname):
