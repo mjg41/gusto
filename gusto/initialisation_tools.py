@@ -417,7 +417,7 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
     VDG = state.spaces("DG")
     if any(deg > 2 for deg in VDG.ufl_element().degree()):
         state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
-    quadrature_degree = (4, 4)
+    quadrature_degree = (8, 8)
     dxp = dx(degree=(quadrature_degree))
 
     params = {'ksp_type': 'preonly',
@@ -441,7 +441,8 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
         bmeasure = ds_b
         bstring = "top"
 
-    # solve for Pi with theta_v and w_v guesses
+    # solve for Pi with theta_v and w_v constant
+    # then solve for theta_v and w_v with Pi constant
     compressible_hydrostatic_balance(state, theta0, rho0, pi0=Pi, top=top,
                                      pi_boundary=pi_boundary, water_t=water_v0)
 

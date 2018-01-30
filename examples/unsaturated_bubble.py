@@ -2,7 +2,8 @@ from gusto import *
 from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
     SpatialCoordinate, conditional, cos, pi, sqrt, \
     TestFunction, dx, TrialFunction, Constant, Function, \
-    LinearVariationalProblem, LinearVariationalSolver, DirichletBC
+    LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
+    BrokenElement, FunctionSpace, VectorFunctionSpace
 import sys
 
 dt = 1.0
@@ -10,8 +11,8 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 250.
-    tmax = 1500.
+    deltax = 125.
+    tmax = 1000.
 
 L = 10000.
 H = 10000.
@@ -21,15 +22,17 @@ ncolumns = int(L/deltax)
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 diffusion = True
+recovered = False
+degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='unsaturated_bubble_RH60_sloped50_pow2_theta_nolimiters', dumpfreq=20, dumplist=['u', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='unsaturated_bubble_RH50_sloped10_pow1_theta_limiters', dumpfreq=20, dumplist=['u', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [Theta_e(), Temperature(), Dewpoint(), RelativeHumidity()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
               timestepping=timestepping,
               output=output,
@@ -54,11 +57,23 @@ x, z = SpatialCoordinate(mesh)
 quadrature_degree = (5, 5)
 dxp = dx(degree=(quadrature_degree))
 
+if recovered:
+    VDG1 = FunctionSpace(mesh, "DG", 1)
+    VCG1 = FunctionSpace(mesh, "CG", 1)
+    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
+    Vu_DG1 = VectorFunctionSpace(mesh, "DG", 1)
+    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
+    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
+
+    u_spaces = (Vu_DG1, Vu_CG1, Vu_brok)
+    rho_spaces = (VDG1, VCG1, Vr)
+    theta_spaces = (VDG1, VCG1, Vt_brok)
+
 # Define constant theta_e and water_t
 Tsurf = 300.0
-Ttop = 350.0
-humidity = 0.6
-theta_d = Function(Vt).interpolate(Tsurf + (Ttop - Tsurf) * (z / H) ** 2.0)
+Ttop = 320.0
+humidity = 0.5
+theta_d = Function(Vt).interpolate(Tsurf + (Ttop - Tsurf) * (z / H) ** 1.0)
 RH = Function(Vt).assign(humidity)
 
 # Calculate hydrostatic fields
@@ -104,20 +119,31 @@ state.set_reference_profiles([('rho', rho_b),
                               ('water_v', water_vb)])
 
 # Set up advection schemes
-ueqn = EulerPoincare(state, Vu)
-rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
+if recovered:
+    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", recovered_spaces=u_spaces)
+    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", recovered_spaces=rho_spaces)
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", recovered_spaces=theta_spaces)
+else:
+    ueqn = EulerPoincare(state, Vu)
+    rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
 
-advected_fields = [('u', ThetaMethod(state, u0, ueqn)),
-                   ('rho', SSPRK3(state, rho0, rhoeqn)),
-                   ('theta', SSPRK3(state, theta0, thetaeqn)),
-                   ('water_v', SSPRK3(state, water_v0, thetaeqn)),
-                   ('water_c', SSPRK3(state, water_c0, thetaeqn))]
+advected_fields = [('rho', SSPRK3(state, rho0, rhoeqn)),
+                   ('theta', SSPRK3(state, theta0, thetaeqn, limiter=ThetaLimiter(thetaeqn))),
+                   ('water_v', SSPRK3(state, water_v0, thetaeqn, limiter=ThetaLimiter(thetaeqn))),
+                   ('water_c', SSPRK3(state, water_c0, thetaeqn, limiter=ThetaLimiter(thetaeqn)))]
+if recovered:
+    advected_fields.append(('u', SSPRK3(state, u0, ueqn)))
+else:
+    advected_fields.append(('u', ThetaMethod(state, u0, ueqn)))
 
 linear_solver = CompressibleSolver(state, moisture=moisture)
 
 # Set up forcing
-compressible_forcing = CompressibleForcing(state, moisture=moisture)
+if recovered:
+    compressible_forcing = CompressibleForcing(state, moisture=moisture, euler_poincare=False)
+else:
+    compressible_forcing = CompressibleForcing(state, moisture=moisture)
 
 # diffusion
 bcs = [DirichletBC(Vu, 0.0, "bottom"),
