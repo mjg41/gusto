@@ -1,10 +1,12 @@
 from abc import ABCMeta, abstractmethod
+from gusto.transport_equation import EmbeddedDGAdvection
+from gusto.advection import SSPRK3
 from firedrake import exp, Interpolator, conditional, Function, \
-    min_value, max_value, TestFunction, dx, \
+    min_value, max_value, TestFunction, dx, as_vector, \
     NonlinearVariationalProblem, NonlinearVariationalSolver
 
 
-__all__ = ["Condensation"]
+__all__ = ["Condensation", "Fallout", "Coalescence"]
 
 
 class Physics(object, metaclass=ABCMeta):
@@ -123,6 +125,85 @@ class Condensation(Physics):
         if self.weak:
             self.cond_rate_solver.solve()
         self.lim_cond_rate.interpolate()
+        self.theta.assign(self.theta_new.interpolate())
         self.water_v.assign(self.water_v_new.interpolate())
         self.water_c.assign(self.water_c_new.interpolate())
-        self.theta.assign(self.theta_new.interpolate())
+
+
+class Fallout(Physics):
+    """
+    The fallout process of hydrometeors.
+
+    :arg state :class: `.State.` object.
+    """
+
+    def __init__(self, state):
+        super(Fallout, self).__init__(state)
+
+        self.state = state
+        self.rain = state.fields('rain')
+
+        # function spaces
+        Vt = self.rain.function_space()
+        Vu = state.fields('u').function_space()
+
+        # introduce sedimentation rate
+        # for now assume all rain falls at terminal velocity
+        terminal_velocity = 10  # in m/s
+        self.v = state.fields("rainfall_velocity", Vu)
+        self.v.project(as_vector([0, -terminal_velocity]))
+
+        # sedimentation will happen using a full advection method
+        advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
+        self.advection_method = SSPRK3(state, self.rain, advection_equation)
+
+    def apply(self):
+        for k in range(self.state.timestepping.maxk):
+            self.advection_method.update_ubar(self.v, self.v, 0)
+            self.advection_method.apply(self.rain, self.rain)
+
+
+class Coalescence(Physics):
+    """
+    The process of coalescence of liquid water
+    into rain droplets.
+    :arg state: :class:`.State.` object.
+    """
+
+    def __init__(self, state):
+        super(Coalescence, self).__init__(state)
+
+        self.water_c = state.fields('water_c')
+        self.rain = state.fields('rain')
+        Vt = self.water_c.function_space()
+
+        # constants
+        dt = state.timestepping.dt
+        k1 = 0.001
+        k2 = 2.2
+        a = 0.001
+
+        # collection of rainwater
+        collection = k2 * self.water_c * self.rain ** 0.875
+
+        # autoconversion of cloud water into rain water
+        autoconversion = k1 * (self.water_c - a)
+
+
+        # make coalescence rate that will be the same function for all updates in one time step
+        self.coalescence_rate = Function(Vt)
+
+        # cap coalescence rate so that negative concentrations don't occur
+        self.lim_coalescence_rate = Interpolator(conditional(collection + autoconversion < 0,
+                                                             max_value(collection + autoconversion, - self.rain / dt),
+                                                             min_value(collection + autoconversion, self.water_c / dt)),
+                                                 self.coalescence_rate)
+
+        # initiate updating of prognostic variables
+        self.water_c_new = Interpolator(self.water_c - dt * self.coalescence_rate, Vt)
+        self.rain_new = Interpolator(self.rain + dt * self.coalescence_rate, Vt)
+
+    def apply(self):
+        self.lim_coalescence_rate.interpolate()
+        self.water_c.assign(self.water_c_new.interpolate())
+        self.rain.assign(self.rain_new.interpolate())
