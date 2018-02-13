@@ -1,12 +1,15 @@
 from abc import ABCMeta, abstractmethod
 from gusto.transport_equation import EmbeddedDGAdvection
 from gusto.advection import SSPRK3
-from firedrake import exp, Interpolator, conditional, Function, \
+from gusto.limiters import ThetaLimiter
+from gusto import thermodynamics
+from firedrake import Projector, Interpolator, conditional, Function, \
     min_value, max_value, TestFunction, dx, as_vector, \
-    NonlinearVariationalProblem, NonlinearVariationalSolver
+    NonlinearVariationalProblem, NonlinearVariationalSolver, Constant, pi
+from scipy.special import gamma
 
 
-__all__ = ["Condensation", "Fallout", "Coalescence"]
+__all__ = ["Condensation", "Fallout", "Coalescence", "Collection", "Autoconversion"]
 
 
 class Physics(object, metaclass=ABCMeta):
@@ -54,39 +57,27 @@ class Condensation(Physics):
         # declare function space
         Vt = self.theta.function_space()
 
-        param = self.state.parameters
-
         # define some parameters as attributes
-        dt = self.state.timestepping.dt
-        R_d = param.R_d
-        p_0 = param.p_0
-        kappa = param.kappa
-        cp = param.cp
-        cv = param.cv
-        c_pv = param.c_pv
-        c_pl = param.c_pl
-        c_vv = param.c_vv
-        R_v = param.R_v
-        L_v0 = param.L_v0
-        T_0 = param.T_0
-        w_sat1 = param.w_sat1
-        w_sat2 = param.w_sat2
-        w_sat3 = param.w_sat3
-        w_sat4 = param.w_sat4
+        dt = state.timestepping.dt
+        R_d = state.parameters.R_d
+        cp = state.parameters.cp
+        cv = state.parameters.cv
+        c_pv = state.parameters.c_pv
+        c_pl = state.parameters.c_pl
+        c_vv = state.parameters.c_vv
+        R_v = state.parameters.R_v
 
         # make useful fields
-        Pi = ((R_d * rho * self.theta / p_0)
-              ** (kappa / (1.0 - kappa)))
-        T = Pi * self.theta * R_d / (R_d + self.water_v * R_v)
-        p = p_0 * Pi ** (1.0 / kappa)
-        L_v = L_v0 - (c_pl - c_pv) * (T - T_0)
+        Pi = thermodynamics.pi(state.parameters, rho, self.theta)
+        T = thermodynamics.T(state.parameters, self.theta, Pi, r_v=self.water_v)
+        p = thermodynamics.p(state.parameters, Pi)
+        L_v = thermodynamics.Lv(state.parameters, T)
         R_m = R_d + R_v * self.water_v
         c_pml = cp + c_pv * self.water_v + c_pl * self.water_c
         c_vml = cv + c_vv * self.water_v + c_pl * self.water_c
 
         # use Teten's formula to calculate w_sat
-        w_sat = (w_sat1 /
-                 (p * exp(w_sat2 * (T - T_0) / (T - w_sat3)) - w_sat4))
+        w_sat = thermodynamics.r_sat(state.parameters, T, p)
 
         # make appropriate condensation rate
         dot_r_cond = ((self.water_v - w_sat) /
@@ -135,12 +126,12 @@ class Fallout(Physics):
     The fallout process of hydrometeors.
 
     :arg state :class: `.State.` object.
+    :arg moments: the moments of the distribution to be advected.
     """
 
-    def __init__(self, state):
+    def __init__(self, state, moments=0):
         super(Fallout, self).__init__(state)
 
-        self.state = state
         self.rain = state.fields('rain')
 
         # function spaces
@@ -151,16 +142,41 @@ class Fallout(Physics):
         # for now assume all rain falls at terminal velocity
         terminal_velocity = 10  # in m/s
         self.v = state.fields("rainfall_velocity", Vu)
-        self.v.project(as_vector([0, -terminal_velocity]))
+
+        if moments == 0:
+            # all rain falls at same terminal velocity
+            terminal_velocity = 10  # m/s
+            v_expression = Constant(terminal_velocity)
+        elif moments == 1:
+            rho = state.fields('rho')
+            water_l = 1000.0
+            mass_threshold = 1e-10
+            mu = 0
+            N_r = 1e5
+            c = pi * water_l / 6
+            d = 3
+            a = 362
+            b = 0.65
+            g = 0.5
+            rho0 = 1.22
+            Lambda0 = (N_r * c * gamma(1 + mu + d) / (gamma(1 + mu) * mass_threshold)) ** (1 / d)
+            Lambda = (N_r * c * gamma(1 + mu + d) / (gamma(1 + mu) * self.rain)) ** (1 / d)
+            v_expression = conditional(self.rain > mass_threshold,
+                                       a * gamma(1 + mu + d + b) / (gamma(1 + mu + d) * Lambda ** b) * (rho0 / rho) ** g,
+                                       a * gamma(1 + mu + d + b) / (gamma(1 + mu + d) * Lambda0 ** b) * (rho0 / rho) ** g)
+        else:
+            raise NotImplementedError('Currently we only have implementations for 0th and 1st moments of rainfall')
+        solver_parameters = {'ksp_type': 'preonly', 'pc_type': 'lu', 'pc_factor_mat_solver_package': 'mumps'}
+        self.determine_v = Projector(as_vector([0, -v_expression]), self.v, solver_parameters=solver_parameters)
 
         # sedimentation will happen using a full advection method
         advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
-        self.advection_method = SSPRK3(state, self.rain, advection_equation)
+        self.advection_method = SSPRK3(state, self.rain, advection_equation, limiter=ThetaLimiter(advection_equation))
 
     def apply(self):
-        for k in range(self.state.timestepping.maxk):
-            self.advection_method.update_ubar(self.v, self.v, 0)
-            self.advection_method.apply(self.rain, self.rain)
+        self.determine_v.project()
+        self.advection_method.update_ubar(self.v, self.v, 0)
+        self.advection_method.apply(self.rain, self.rain)
 
 
 class Coalescence(Physics):
@@ -189,13 +205,12 @@ class Coalescence(Physics):
         # autoconversion of cloud water into rain water
         autoconversion = k1 * (self.water_c - a)
 
-
         # make coalescence rate that will be the same function for all updates in one time step
         self.coalescence_rate = Function(Vt)
 
         # cap coalescence rate so that negative concentrations don't occur
         self.lim_coalescence_rate = Interpolator(conditional(collection + autoconversion < 0,
-                                                             max_value(collection + autoconversion, - self.rain / dt),
+                                                             Constant(0.0),
                                                              min_value(collection + autoconversion, self.water_c / dt)),
                                                  self.coalescence_rate)
 
@@ -207,3 +222,81 @@ class Coalescence(Physics):
         self.lim_coalescence_rate.interpolate()
         self.water_c.assign(self.water_c_new.interpolate())
         self.rain.assign(self.rain_new.interpolate())
+
+
+class Collection(Physics):
+    """
+    The process of collection of liquid water
+    into rain droplets.
+    :arg state: :class:`.State.` object.
+    """
+
+    def __init__(self, state):
+        super(Collection, self).__init__(state)
+
+        self.water_c = state.fields('water_c')
+        self.rain = state.fields('rain')
+        Vt = self.water_c.function_space()
+
+        # constants
+        dt = state.timestepping.dt
+        k2 = 2.2
+
+        # collection of rainwater
+        collection = k2 * self.water_c * self.rain ** 0.875
+
+        # make coalescence rate that will be the same function for all updates in one time step
+        self.collection_rate = Function(Vt)
+        self.collection_projector = Projector(collection, self.collection_rate)
+        self.limit_rate = Interpolator(conditional(self.collection_rate > 0,
+                                                   min_value(self.collection_rate, self.water_c / dt),
+                                                   0.0), self.collection_rate)
+
+        # initiate updating of prognostic variables
+        self.water_c_projector = Projector(self.water_c - dt * self.collection_rate, self.water_c)
+        self.rain_projector = Projector(self.rain + dt * self.collection_rate, self.rain)
+
+    def apply(self):
+        self.collection_projector.project()
+        self.water_c_projector.project()
+        self.rain_projector.project()
+
+
+class Autoconversion(Physics):
+    """
+    The process of collection of liquid water
+    into rain droplets.
+    :arg state: :class:`.State.` object.
+    """
+
+    def __init__(self, state):
+        super(Autoconversion, self).__init__(state)
+
+        self.water_c = state.fields('water_c')
+        self.rain = state.fields('rain')
+        Vt = self.water_c.function_space()
+
+        # constants
+        dt = state.timestepping.dt
+        k1 = 0.001
+        a = 0.001
+
+        # collection of rainwater
+        autoconversion = k1 * (self.water_c - a)
+
+        # make coalescence rate that will be the same function for all updates in one time step
+        self.autoconversion_rate = Function(Vt)
+        self.autoconversion_projector = Projector(autoconversion, self.autoconversion_rate)
+        self.limit_rate = Interpolator(conditional(dt * self.autoconversion_rate > 0,
+                                                   min_value(self.autoconversion_rate, self.water_c / dt),
+                                                   max_value(self.autoconversion_rate, - self.rain / dt)), self.autoconversion_rate)
+
+        # initiate updating of prognostic variables
+        self.water_c_projector = Projector(self.water_c - dt * self.autoconversion_rate, self.water_c)
+        self.rain_projector = Projector(self.rain + dt * self.autoconversion_rate, self.rain)
+
+    def apply(self):
+        self.autoconversion_projector.project()
+        self.limit_rate.interpolate()
+        self.water_c_projector.project()
+        self.rain_projector.project()

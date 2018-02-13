@@ -16,8 +16,8 @@ def setup_fallout(dirname):
 
     # declare grid shape, with length L and height H
     L = 400.
-    H = 1000.
-    nlayers = 25
+    H = 400.
+    nlayers = 10
     ncolumns = 10
 
     # make mesh
@@ -26,7 +26,7 @@ def setup_fallout(dirname):
     x = SpatialCoordinate(mesh)
 
     fieldlist = ['u', 'rho', 'theta', 'rain']
-    timestepping = TimesteppingParameters(dt=1.0, maxk=4, maxi=1)
+    timestepping = TimesteppingParameters(dt=2.0, maxk=4, maxi=1)
     output = OutputParameters(dirname=dirname+"/fallout",
                               dumpfreq=1,
                               dumplist=['rain'])
@@ -53,14 +53,14 @@ def setup_fallout(dirname):
 
     # set up rain
     xc = L / 2
-    zc = 800.
+    zc = 200.
     rc = 150.
     r = sqrt((x[0] - xc) ** 2 + (x[1] - zc) ** 2)
-    rain_expr = conditional(r > rc, 0., 1e-5 * (cos(pi * r / (rc * 2))) ** 2)
+    rain_expr = conditional(r > rc, 0., 0.01 * (cos(pi * r / (rc * 2))) ** 2)
 
     rain0.interpolate(rain_expr)
 
-    rho0.assign(1.0)
+    rho0.assign(0.25)
 
     state.initialise([('u', u0),
                       ('rho', rho0),
@@ -72,12 +72,12 @@ def setup_fallout(dirname):
     advected_fields.append(("rho", NoAdvection(state, rho0, None)))
     advected_fields.append(("rain", NoAdvection(state, rain0, None)))
 
-    physics_list = [Fallout(state)]
+    physics_list = [Fallout(state, moments=0)]
 
     # build time stepper
     stepper = AdvectionDiffusion(state, advected_fields, physics_list=physics_list)
 
-    return stepper, 50.0
+    return stepper, 200.0
 
 
 def run_fallout(dirname):
@@ -97,5 +97,5 @@ def test_fallout_setup(tmpdir):
     final_rain = rain.variables["total"][-1]
     final_rms_rain = rain.variables["rms"][-1]
 
-    assert abs(final_rain) < 1e-12
-    assert abs(final_rms_rain) < 1e-12
+    assert abs(final_rain) < 0.25
+    assert abs(final_rms_rain) < 0.25

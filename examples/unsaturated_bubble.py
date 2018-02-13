@@ -11,8 +11,8 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 200.
-    tmax = 1000.
+    deltax = 100.
+    tmax = 3000.
 
 L = 10000.
 H = 10000.
@@ -27,10 +27,10 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='rain_test_degree1_Limiters_FlatRain', dumpfreq=20, dumplist=['u', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_1stMomRain_highres', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [Theta_e(), Temperature(), Dewpoint(), RelativeHumidity(), Precipitation()]
+diagnostic_fields = [Precipitation()]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -72,9 +72,14 @@ if recovered:
 
 # Define constant theta_e and water_t
 Tsurf = 300.0
-Ttop = 320.0
+Tcond = 305.0
+Tstop = 330.0
+zcond = 3000.
+zstop = 8000.
+T1 = (Tstop * zcond ** 2 - Tcond * zstop ** 2 - Tsurf * (zcond ** 2 - zstop ** 2)) / (zcond * zstop * (zcond - zstop))
+T2 = (Tstop * zcond - Tcond * zstop - Tsurf * (zcond - zstop)) / (zcond * zstop * (zstop - zcond))
 humidity = 0.5
-theta_d = Function(Vt).interpolate(Tsurf + (Ttop - Tsurf) * (z / H) ** 1.0)
+theta_d = Function(Vt).interpolate(Tsurf + T1 * z + T2 * z ** 2)
 RH = Function(Vt).assign(humidity)
 
 # Calculate hydrostatic fields
@@ -108,7 +113,7 @@ rho_solver = LinearVariationalSolver(rho_problem)
 rho_solver.solve()
 
 water_c0.assign(0.0)
-rain0.assign(theta_pert * 0.001)
+rain0.assign(0.0)
 
 # initialise fields
 state.initialise([('u', u0),
@@ -132,10 +137,10 @@ else:
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
 
 advected_fields = [('rho', SSPRK3(state, rho0, rhoeqn)),
-                   ('theta', SSPRK3(state, theta0, thetaeqn, limiter=ThetaLimiter(thetaeqn))),
-                   ('water_v', SSPRK3(state, water_v0, thetaeqn, limiter=ThetaLimiter(thetaeqn))),
-                   ('water_c', SSPRK3(state, water_c0, thetaeqn, limiter=ThetaLimiter(thetaeqn))),
-                   ('rain', SSPRK3(state, rain0, thetaeqn))]
+                   ('theta', SSPRK3(state, theta0, thetaeqn)),
+                   ('water_v', SSPRK3(state, water_v0, thetaeqn)),
+                   ('water_c', SSPRK3(state, water_c0, thetaeqn)),
+                   ('rain', SSPRK3(state, rain0, thetaeqn, limiter=ThetaLimiter(thetaeqn)))]
 if recovered:
     advected_fields.append(('u', SSPRK3(state, u0, ueqn)))
 else:
@@ -160,7 +165,7 @@ if diffusion:
                                                  mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state), Fallout(state), Coalescence(state)]
+physics_list = [Condensation(state), Fallout(state, moments=1), Coalescence(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
