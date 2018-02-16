@@ -27,7 +27,7 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_1stMomRain_highres', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_FlatRain_highres', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [Precipitation()]
@@ -165,7 +165,7 @@ if diffusion:
                                                  mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state), Fallout(state, moments=1), Coalescence(state)]
+physics_list = [Condensation(state), Fallout(state, moments=0), Coalescence(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
