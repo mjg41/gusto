@@ -6,7 +6,7 @@ from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
     BrokenElement, FunctionSpace, VectorFunctionSpace
 import sys
 
-dt = 1.0
+dt = 0.5
 if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
@@ -21,13 +21,13 @@ ncolumns = int(L/deltax)
 
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-diffusion = True
+diffusion = False
 recovered = False
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_FlatRain_highres', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_FlatRain_highres_inviscid', dumpfreq=40, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [Precipitation()]
