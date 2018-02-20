@@ -32,7 +32,11 @@ def embedded_dg(original_apply):
                     except NotImplementedError:
                         self.xdg_in.project(x_in)
                 original_apply(self, self.xdg_in, self.xdg_out)
-                self.Projector.project()
+                if self.recovered:
+                    recovered_project(self)
+                else:
+                    self.Projector.project()
+                #self.Projector.project()
                 x_out.assign(self.x_projected)
             return new_apply(self, x_in, x_out)
 
@@ -54,7 +58,7 @@ class Advection(object, metaclass=ABCMeta):
     """
 
     def __init__(self, state, field, equation=None, *, solver_parameters=None,
-                 limiter=None):
+                 limiter=None, limit=False):
 
         if equation is not None:
 
@@ -81,7 +85,7 @@ class Advection(object, metaclass=ABCMeta):
         # the output function.
         if isinstance(equation, EmbeddedDGAdvection):
             # check that the field and the equation are compatible
-            if not equation.V0.__eq__(field.function_space()):
+            if equation.V0 != field.function_space():
                 raise ValueError('The field to be advected is not compatible with the equation used.')
             self.embedded_dg = True
             fs = equation.space
@@ -108,6 +112,11 @@ class Advection(object, metaclass=ABCMeta):
                 # self.x_rec_projector = Projector(self.x_in, equation.Vrec, method="average")
                 self.x_brok_projector = Projector(x_rec, x_brok)  # function projected back
                 self.xdg_interpolator = Interpolator(self.x_in + x_rec - x_brok, self.xdg_in)
+                if self.limiter is not None:
+                    self.x_brok_interpolator = Interpolator(self.xdg_out, x_brok)
+                    self.x_out_projector = Recoverer(x_brok, self.x_projected)
+                    # when the "average" method comes into firedrake master, this will be
+                    # self.x_out_projector = Projector(x_brok, self.x_projected, method="average")
         else:
             self.embedded_dg = False
             fs = field.function_space()
@@ -181,9 +190,9 @@ class ExplicitAdvection(Advection):
     """
 
     def __init__(self, state, field, equation=None, *, subcycles=None,
-                 solver_parameters=None, limiter=None):
+                 solver_parameters=None, limiter=None, limit=False):
         super().__init__(state, field, equation,
-                         solver_parameters=solver_parameters, limiter=limiter)
+                         solver_parameters=solver_parameters, limiter=limiter, limit=limit)
 
         # if user has specified a number of subcycles, then save this
         # and rescale dt accordingly; else perform just one cycle using dt
@@ -329,6 +338,8 @@ class ThetaMethod(Advection):
 def recovered_apply(self, x_in):
     """
     Extra steps to the apply method for the recovered advection scheme.
+    This provides an advection scheme for the lowest-degree family
+    of spaces, but which has second order numerical accuracy.
 
     :arg x_in: the input set of prognostic fields.
     """
@@ -337,6 +348,20 @@ def recovered_apply(self, x_in):
     self.x_rec_projector.project()
     self.x_brok_projector.project()
     self.xdg_interpolator.interpolate()
+
+
+def recovered_project(self):
+    """
+    The projection steps for the recovered advection scheme,
+    used for the lowest-degree sets of spaces. This returns the
+    field to its original space, from the space the embedded DG
+    advection happens in. This step acts as a limiter.
+    """
+    if self.limiter is not None:
+        self.x_brok_interpolator.interpolate()
+        self.x_out_projector.project()
+    else:
+        self.Projector.project()
 
 
 class Recoverer(object):
