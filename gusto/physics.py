@@ -5,7 +5,9 @@ from gusto.limiters import ThetaLimiter
 from gusto import thermodynamics
 from firedrake import Projector, Interpolator, conditional, Function, \
     min_value, max_value, TestFunction, dx, as_vector, \
-    NonlinearVariationalProblem, NonlinearVariationalSolver, Constant, pi
+    NonlinearVariationalProblem, NonlinearVariationalSolver, Constant, pi, \
+    FunctionSpace, BrokenElement
+from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 from scipy.special import gamma
 
 
@@ -170,8 +172,22 @@ class Fallout(Physics):
         self.determine_v = Projector(as_vector([0, -v_expression]), self.v, solver_parameters=solver_parameters)
 
         # sedimentation will happen using a full advection method
-        advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
-        self.advection_method = SSPRK3(state, self.rain, advection_equation, limiter=ThetaLimiter(advection_equation))
+        if state.vertical_degree == 1:
+            limiter = ThetaLimiter(advection_equation)
+            advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
+        elif state.vertical_degree == 0:
+            mesh = Vt.mesh()
+            VDG1 = FunctionSpace(mesh, "DG", 1)
+            VCG1 = FunctionSpace(mesh, "CG", 1)
+            Vbrok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
+            limiter = VertexBasedLimiter(VDG1)
+            spaces = (VDG1, VCG1, Vbrok)
+            advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True, recovered_spaces=spaces)
+        else:
+            advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
+            limiter = None
+            raise Warning('No limiter is being applied to rainfall')
+        self.advection_method = SSPRK3(state, self.rain, advection_equation, limiter=limiter)
 
     def apply(self):
         self.determine_v.project()

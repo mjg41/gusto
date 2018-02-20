@@ -197,6 +197,8 @@ class State(object):
         self.mu = sponge_function
         self.hydrostatic = hydrostatic
         self.timestepping = timestepping
+        self.vertical_degree = vertical_degree
+        self.horizontal_degree = horizontal_degree
         if output is None:
             raise RuntimeError("You must provide a directory name for dumping results")
         else:

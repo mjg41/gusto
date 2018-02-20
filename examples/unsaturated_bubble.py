@@ -4,6 +4,7 @@ from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
     TestFunction, dx, TrialFunction, Constant, Function, \
     LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
     BrokenElement, FunctionSpace, VectorFunctionSpace
+from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
 dt = 0.5
@@ -21,13 +22,13 @@ ncolumns = int(L/deltax)
 
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-diffusion = False
-recovered = False
+diffusion = True
+recovered = True
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_FlatRain_highres_inviscid', dumpfreq=40, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_FlatRain_highres_recovered', dumpfreq=40, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [Precipitation()]
@@ -131,16 +132,18 @@ if recovered:
     ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", recovered_spaces=u_spaces)
     rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", recovered_spaces=rho_spaces)
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", recovered_spaces=theta_spaces)
+    limiter = VertexBasedLimiter(VDG1)
 else:
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
+    limiter = ThetaLimiter(thetaeqn)
 
 advected_fields = [('rho', SSPRK3(state, rho0, rhoeqn)),
                    ('theta', SSPRK3(state, theta0, thetaeqn)),
                    ('water_v', SSPRK3(state, water_v0, thetaeqn)),
                    ('water_c', SSPRK3(state, water_c0, thetaeqn)),
-                   ('rain', SSPRK3(state, rain0, thetaeqn, limiter=ThetaLimiter(thetaeqn)))]
+                   ('rain', SSPRK3(state, rain0, thetaeqn, limiter=limiter))]
 if recovered:
     advected_fields.append(('u', SSPRK3(state, u0, ueqn)))
 else:
@@ -160,9 +163,10 @@ bcs = [DirichletBC(Vu, 0.0, "bottom"),
 
 diffused_fields = []
 
+mu = 5. if recovered else 10.
 if diffusion:
     diffused_fields.append(('u', InteriorPenalty(state, Vu, kappa=Constant(60.),
-                                                 mu=Constant(10./deltax), bcs=bcs)))
+                                                 mu=Constant(mu/deltax), bcs=bcs)))
 
 # define condensation
 physics_list = [Condensation(state), Fallout(state, moments=0), Coalescence(state)]
