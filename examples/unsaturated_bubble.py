@@ -7,12 +7,12 @@ from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
-dt = 0.5
+dt = 1.0
 if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 100.
+    deltax = 125.
     tmax = 3000.
 
 L = 10000.
@@ -28,10 +28,10 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_FlatRain_highres_recovered', dumpfreq=40, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_new_test', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [Precipitation()]
+diagnostic_fields = []
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -81,7 +81,7 @@ T1 = (Tstop * zcond ** 2 - Tcond * zstop ** 2 - Tsurf * (zcond ** 2 - zstop ** 2
 T2 = (Tstop * zcond - Tcond * zstop - Tsurf * (zcond - zstop)) / (zcond * zstop * (zstop - zcond))
 humidity = 0.5
 theta_d = Function(Vt).interpolate(Tsurf + T1 * z + T2 * z ** 2)
-RH = Function(Vt).assign(humidity)
+RH = Function(Vt).interpolate(humidity * (1 + z / H))
 
 # Calculate hydrostatic fields
 unsaturated_hydrostatic_balance(state, theta_d, RH)
@@ -166,7 +166,7 @@ diffused_fields = []
 mu = 5. if recovered else 10.
 if diffusion:
     diffused_fields.append(('u', InteriorPenalty(state, Vu, kappa=Constant(60.),
-                                                 mu=Constant(mu/deltax), bcs=bcs)))
+                                                 mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
 physics_list = [Condensation(state), Fallout(state, moments=0), Coalescence(state)]
