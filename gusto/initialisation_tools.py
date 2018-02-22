@@ -11,6 +11,7 @@ from firedrake import MixedFunctionSpace, TrialFunctions, TestFunctions, \
     NonlinearVariationalProblem, NonlinearVariationalSolver, split, solve, \
     sin, cos, sqrt, asin, atan_2, as_vector, Min, Max
 from gusto import thermodynamics
+from gusto.configuration import logger
 
 
 __all__ = ["latlon_coords", "sphere_to_cartesian", "incompressible_hydrostatic_balance", "compressible_hydrostatic_balance", "remove_initial_w", "eady_initial_v", "compressible_eady_initial_v", "calculate_Pi0", "saturated_hydrostatic_balance", "unsaturated_hydrostatic_balance"]
@@ -444,49 +445,98 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
     compressible_hydrostatic_balance(state, theta0, rho0, pi0=Pi, top=top,
                                      pi_boundary=pi_boundary, water_t=water_v0)
 
-    # now begin on Newton solver, setup up new mixed space
-    Z = MixedFunctionSpace((Vt, Vt, Vr, Vv))
-    z = Function(Z)
+    # do full solver
+    try:
+        # now begin on Newton solver, setup up new mixed space
+        Z = MixedFunctionSpace((Vt, Vt, Vr, Vv))
+        z = Function(Z)
 
-    gamma, phi, psi, w = TestFunctions(Z)
-    theta_v, w_v, rho, v = z.split()
+        gamma, phi, psi, w = TestFunctions(Z)
+        theta_v, w_v, rho, v = z.split()
 
-    # use previous values as first guesses for newton solver
-    theta_v.assign(theta0)
-    w_v.assign(water_v0)
-    rho.interpolate(thermodynamics.rho(state.parameters, theta0, Pi))
+        # use previous values as first guesses for newton solver
+        theta_v.assign(theta0)
+        w_v.assign(water_v0)
+        rho.interpolate(thermodynamics.rho(state.parameters, theta0, Pi))
+        
+        theta_v, w_v, rho, v = split(z)
 
-    theta_v, w_v, rho, v = split(z)
+        # define variables
+        pi = thermodynamics.pi(state.parameters, rho, theta_v)
+        T = thermodynamics.T(state.parameters, theta_v, pi, r_v=w_v)
+        p = thermodynamics.p(state.parameters, pi)
+        r_v = thermodynamics.r_v(state.parameters, H, T, p)
+        
+        F = (-gamma * theta_v * dxp
+             + gamma * theta_d * (1 + w_v * R_v / R_d) * dxp
+             - phi * w_v * dxp
+             + phi * r_v * dxp
+             + cp * inner(v, w) * dxp
+             - cp * div(w * theta_v / (1.0 + w_v)) * pi * dxp
+             + psi * div(theta_v * v / (1.0 + w_v)) * dxp
+             + cp * inner(w, n) * pi_boundary * theta_v / (1.0 + w_v) * bmeasure
+             + g * inner(w, state.k) * dxp)
+        
+        bcs = [DirichletBC(Z.sub(3), 0.0, bstring)]
 
-    # define variables
-    pi = thermodynamics.pi(state.parameters, rho, theta_v)
-    T = thermodynamics.T(state.parameters, theta_v, pi, r_v=w_v)
-    p = thermodynamics.p(state.parameters, pi)
-    r_v = thermodynamics.r_v(state.parameters, H, T, p)
+        problem = NonlinearVariationalProblem(F, z, bcs=bcs)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        
+        solver.solve()
+        
+        theta_v, w_v, rho, v = z.split()
+        
+        # assign final values
+        rho0.assign(rho)
+        theta0.assign(theta_v)
+        water_v0.assign(w_v)
 
-    F = (-gamma * theta_v * dxp
-         + gamma * theta_d * (1 + w_v * R_v / R_d) * dxp
-         - phi * w_v * dxp
-         + phi * r_v * dxp
-         + cp * inner(v, w) * dxp
-         - cp * div(w * theta_v / (1.0 + w_v)) * pi * dxp
-         + psi * div(theta_v * v / (1.0 + w_v)) * dxp
-         + cp * inner(w, n) * pi_boundary * theta_v / (1.0 + w_v) * bmeasure
-         + g * inner(w, state.k) * dxp)
+    except:
+        logger.warning('Initial attempt at solving hydrostatic balance failed. Now try splitting up equations.')
+        # now begin on Newton solver, setup up new mixed space
+        Z = MixedFunctionSpace((Vt, Vt))
+        z = Function(Z)
+        
+        gamma, psi = TestFunctions(Z)
+        theta_v, w_v, = z.split()
 
-    bcs = [DirichletBC(Z.sub(3), 0.0, bstring)]
+        # use previous values as first guesses for newton solver
+        theta_v.assign(theta0)
+        w_v.assign(water_v0)
+        rho0.interpolate(thermodynamics.rho(state.parameters, theta0, Pi))
 
-    problem = NonlinearVariationalProblem(F, z, bcs=bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        for i in range(10):
+            theta_v, w_v = split(z)
 
-    solver.solve()
+            # define variables
+            pi = thermodynamics.pi(state.parameters, rho0, theta_v)
+            T = thermodynamics.T(state.parameters, theta_d, pi)
+            p = thermodynamics.p(state.parameters, pi)
+            r_v = thermodynamics.r_v(state.parameters, H, T, p)
 
-    theta_v, w_v, rho, v = z.split()
+            F = (-gamma * theta_v * dxp
+                 + gamma * theta_d * (1 + r_v * R_v / R_d) * dxp
+                 - psi * w_v * dxp
+                 + psi * r_v * dxp
+            )
+        
+        problem = NonlinearVariationalProblem(F, z)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        solver.solve()
+        theta_v, w_v = z.split()
 
-    # assign final values
-    rho0.assign(rho)
-    theta0.assign(theta_v)
-    water_v0.assign(w_v)
+        theta0.assign(theta_v)
+        water_v0.assign(w_v)
+        compressible_hydrostatic_balance(state, theta0, rho0, pi0=Pi, top=top,
+                                         pi_boundary=pi_boundary, water_t=water_v0, solve_for_rho=True)
+
+        solver.solve()
+
+        theta_v, w_v = z.split()
+
+        # assign final values
+        theta0.assign(theta_v)
+        water_v0.assign(w_v)
 
     if pi0 is not None:
         pi0.interpolate(pi)
