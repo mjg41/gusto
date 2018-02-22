@@ -12,8 +12,8 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 125.
-    tmax = 3000.
+    deltax = 250.
+    tmax = 2000.
 
 L = 10000.
 H = 10000.
@@ -22,13 +22,13 @@ ncolumns = int(L/deltax)
 
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-diffusion = True
-recovered = True
+diffusion = False
+recovered = False
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_new_test', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='RainBubble_new_test_1st_nodiffusion_48', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = []
@@ -79,9 +79,9 @@ zcond = 3000.
 zstop = 8000.
 T1 = (Tstop * zcond ** 2 - Tcond * zstop ** 2 - Tsurf * (zcond ** 2 - zstop ** 2)) / (zcond * zstop * (zcond - zstop))
 T2 = (Tstop * zcond - Tcond * zstop - Tsurf * (zcond - zstop)) / (zcond * zstop * (zstop - zcond))
-humidity = 0.5
+humidity = 0.48
 theta_d = Function(Vt).interpolate(Tsurf + T1 * z + T2 * z ** 2)
-RH = Function(Vt).interpolate(humidity * (1 + z / H))
+RH = Function(Vt).interpolate(humidity + (1 - humidity) * z / H)
 
 # Calculate hydrostatic fields
 unsaturated_hydrostatic_balance(state, theta_d, RH)

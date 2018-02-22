@@ -173,8 +173,8 @@ class Fallout(Physics):
 
         # sedimentation will happen using a full advection method
         if state.vertical_degree == 1:
-            limiter = ThetaLimiter(advection_equation)
             advection_equation = EmbeddedDGAdvection(state, Vt, equation_form="advective", outflow=True)
+            limiter = ThetaLimiter(advection_equation)
         elif state.vertical_degree == 0:
             mesh = Vt.mesh()
             VDG1 = FunctionSpace(mesh, "DG", 1)
