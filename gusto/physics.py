@@ -142,7 +142,7 @@ class Fallout(Physics):
 
         # introduce sedimentation rate
         # for now assume all rain falls at terminal velocity
-        terminal_velocity = 10  # in m/s
+        terminal_velocity = 5  # in m/s
         self.v = state.fields("rainfall_velocity", Vu)
 
         if moments == 0:

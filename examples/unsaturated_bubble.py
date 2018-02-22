@@ -12,7 +12,7 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 100.
+    deltax = 50.
     tmax = 2000.
 
 L = 10000.
@@ -31,7 +31,7 @@ timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
 output = OutputParameters(dirname='RainBubble_highres_0th_nodiffusion_48', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = []
+diagnostic_fields = [RelativeHumidity(), Precipitation()]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -79,9 +79,10 @@ zcond = 3000.
 zstop = 8000.
 T1 = (Tstop * zcond ** 2 - Tcond * zstop ** 2 - Tsurf * (zcond ** 2 - zstop ** 2)) / (zcond * zstop * (zcond - zstop))
 T2 = (Tstop * zcond - Tcond * zstop - Tsurf * (zcond - zstop)) / (zcond * zstop * (zstop - zcond))
-humidity = 0.48
+H_b = 0.48
+H_t = 0.96
 theta_d = Function(Vt).interpolate(Tsurf + T1 * z + T2 * z ** 2)
-RH = Function(Vt).interpolate(humidity + (1 - humidity) * z / H)
+RH = Function(Vt).interpolate(H_b + (H_t - H_b) * z / H)
 
 # Calculate hydrostatic fields
 unsaturated_hydrostatic_balance(state, theta_d, RH)
