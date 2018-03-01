@@ -4,7 +4,7 @@ from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
     TestFunction, dx, TrialFunction, Constant, Function, \
     LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
     BrokenElement, FunctionSpace, VectorFunctionSpace, \
-    NonlinearVariationalProblem, NonlinearVariationalSolver
+    NonlinearVariationalProblem, NonlinearVariationalSolver, exp
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
@@ -13,11 +13,11 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 60.
-    tmax = 2000.
+    deltax = 30.
+    tmax = 600.
 
-L = 2500.
-H = 2500.
+L = 3600.
+H = 2400.
 nlayers = int(H/deltax)
 ncolumns = int(L/deltax)
 
@@ -29,10 +29,10 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='RainBubble_new_small', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='grabowski_clark_rain', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [RelativeHumidity(), Precipitation()]
+diagnostic_fields = [RelativeHumidity(), Precipitation(), Temperature(), ExnerPi()]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -73,62 +73,46 @@ if recovered:
     theta_spaces = (VDG1, VCG1, Vt_brok)
 
 # Define constant theta_e and water_t
-Tsurf = 300.0
-Tcond = 305.0
-Tstop = 305.0
-zcond = 3000.
-zstop = 8000.
-T1 = (Tstop * zcond ** 2 - Tcond * zstop ** 2 - Tsurf * (zcond ** 2 - zstop ** 2)) / (zcond * zstop * (zcond - zstop))
-T2 = (Tstop * zcond - Tcond * zstop - Tsurf * (zcond - zstop)) / (zcond * zstop * (zstop - zcond))
-H_b = 0.2
-H_t = 0.2
-theta_d = Function(Vt).interpolate(Tsurf + T1 * z + T2 * z ** 2)
-theta_d = Function(Vt).interpolate(Tsurf + (Tstop - Tsurf) * z / H)
-RH = Function(Vt).interpolate(H_b + (H_t - H_b) * z / H)
-
+Tsurf = 283.0
+psurf = 85000.
+humidity = 0.2
+Pi_surf = (psurf / state.parameters.p_0) ** state.parameters.kappa
+r_v_surf = thermodynamics.r_v(state.parameters, 0.2, Tsurf, psurf)
+epsilon = state.parameters.R_d / state.parameters.R_v
+theta_surf = thermodynamics.theta(state.parameters, Tsurf, psurf) * (1 + r_v_surf / epsilon)
+S = 1.3e-5
+Hum = Constant(humidity)
+theta0.interpolate(theta_surf * exp(S*z))
+RH = Function(Vt).interpolate(Hum)
+                              
 # Calculate hydrostatic fields
-unsaturated_hydrostatic_balance(state, theta_d, RH)
+gc_balance(state, theta0, RH, pi_boundary=Constant(Pi_surf))
 
 # make mean fields
 theta_b = Function(Vt).assign(theta0)
 rho_b = Function(Vr).assign(rho0)
 water_vb = Function(Vt).assign(water_v0)
+theta_d = Function(Vt).assign(theta0 / (1 + water_v0 / epsilon))
 
 # define perturbation
 xc = L / 2
-zc = 600.
-rc = 450.
-rc_inner = rc * 2. / 3.
-Tdash = 2.0
-theta_pert = Function(Vt).interpolate(conditional(sqrt((x - xc) ** 2 + (z - zc) ** 2) > rc,
-                                                  0.0, Tdash *
-                                                  (cos(pi * sqrt(((x - xc) / rc) ** 2 + ((z - zc) / rc) ** 2) / 2.0))
-                                                  ** 2))
-H_pert = Function(Vt).interpolate(conditional(sqrt((x - xc) ** 2 + (z - zc) ** 2) > rc,
-                                              0.0, conditional(sqrt((x - xc) ** 2 + (z - zc) ** 2) > rc_inner,
-                                                               (1 - H_b) * (cos(pi * sqrt(((x - xc) / rc_inner) ** 2
-                                                                                          + ((z - zc) / rc_inner)
-                                                                                         ** 2))) ** 2, 1 - H_b)))
+zc = 800.
+r1 = 300.
+r2 = 200.
+r = sqrt((x - xc) ** 2 + (z - zc) ** 2)
+
+H_expr = conditional(r > r1, 0.0,
+                     conditional(r > r2,
+                                 (1 - Hum) * (cos(pi * (r - r2) / (2 * (r1 - r2)))) ** 2, 1 - Hum))
+H_pert = Function(Vt).interpolate(H_expr)
 
 H = Function(Vt).assign(RH + H_pert)
-
-# define initial theta
-theta0.assign(theta_b * (theta_pert / 300.0 + 1.0))
-
-# find perturbed rho
-gamma = TestFunction(Vr)
-rho_trial = TrialFunction(Vr)
-a = gamma * rho_trial * dxp
-L = gamma * (rho_b * theta_b / theta0) * dxp
-rho_problem = LinearVariationalProblem(a, L, rho0)
-rho_solver = LinearVariationalSolver(rho_problem)
-rho_solver.solve()
 
 pi = thermodynamics.pi(state.parameters, rho0, theta0)
 w_v = Function(Vt)
 psi = TestFunction(Vt)
 p = thermodynamics.p(state.parameters, pi)
-T = thermodynamics.T(state.parameters, theta0, pi, r_v=w_v)
+T = thermodynamics.T(state.parameters, theta_d, pi)
 r_v = thermodynamics.r_v(state.parameters, H, T, p)
 
 quadrature_degree = (4, 4)
@@ -138,9 +122,19 @@ w_problem = NonlinearVariationalProblem(w_functional, w_v)
 w_solver = NonlinearVariationalSolver(w_problem)
 w_solver.solve()
 
+theta0.assign(theta_d * (1 + w_v / epsilon))
 water_v0.assign(w_v)
 water_c0.assign(0.0)
 rain0.assign(0.0)
+
+# find perturbed rho
+gamma = TestFunction(Vr)
+rho_trial = TrialFunction(Vr)
+a = gamma * rho_trial * dxp
+L = gamma * (rho_b * theta_b / theta0) * dxp
+rho_problem = LinearVariationalProblem(a, L, rho0)
+rho_solver = LinearVariationalSolver(rho_problem)
+rho_solver.solve()
 
 # initialise fields
 state.initialise([('u', u0),

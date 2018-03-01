@@ -98,12 +98,11 @@ def T(parameters, theta_v, pi, r_v=None):
     :arg r_v: the mixing ratio of water vapour.
     """
 
-    R_d = parameters.R_d
-    R_v = parameters.R_v
+    epsilon = parameters.R_d / parameters.R_v
 
-    # if the air is wet, need to divide by (1 + r_v)
+    # if the air is wet, need to divide by (1 + r_v / epsilon)
     if r_v is not None:
-        return theta_v * pi / (1 + r_v * R_v / R_d)
+        return theta_v * pi / (1 + r_v / epsilon)
     # in the case that r_v is None, theta_v=theta
     else:
         return theta_v * pi
@@ -228,7 +227,7 @@ def e_sat(parameters, T):
     w_sat4 = parameters.w_sat4
     T_0 = parameters.T_0
 
-    return w_sat4 * exp(-w_sat2 * (T - T_0) / (T - w_sat3))
+    return w_sat4 * exp(w_sat2 * (T - T_0) / (T - w_sat3))
 
 
 def e(parameters, p, r_v):

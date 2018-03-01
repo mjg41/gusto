@@ -93,7 +93,7 @@ class CompressibleParameters(Configuration):
     L_v0 = 2.5e6  # ref. value for latent heat of vap. (J/kg)
     T_0 = 273.15  # ref. temperature
     w_sat1 = 380.3  # first const. in Teten's formula (Pa)
-    w_sat2 = -17.27  # second const. in Teten's formula (no units)
+    w_sat2 = 17.27  # second const. in Teten's formula (no units)
     w_sat3 = 35.86  # third const. in Teten's formula (K)
     w_sat4 = 610.9  # fourth const. in Teten's formula (Pa)
 

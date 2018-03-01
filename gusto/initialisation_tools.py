@@ -14,7 +14,7 @@ from gusto import thermodynamics
 from gusto.configuration import logger
 
 
-__all__ = ["latlon_coords", "sphere_to_cartesian", "incompressible_hydrostatic_balance", "compressible_hydrostatic_balance", "remove_initial_w", "eady_initial_v", "compressible_eady_initial_v", "calculate_Pi0", "saturated_hydrostatic_balance", "unsaturated_hydrostatic_balance"]
+__all__ = ["latlon_coords", "sphere_to_cartesian", "incompressible_hydrostatic_balance", "compressible_hydrostatic_balance", "remove_initial_w", "eady_initial_v", "compressible_eady_initial_v", "calculate_Pi0", "saturated_hydrostatic_balance", "unsaturated_hydrostatic_balance", "gc_balance"]
 
 
 def latlon_coords(mesh):
@@ -536,6 +536,151 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
 
         # assign final values
         theta0.assign(theta_v)
+        water_v0.assign(w_v)
+
+    if pi0 is not None:
+        pi0.interpolate(pi)
+
+    # do one extra solve for rho
+    compressible_hydrostatic_balance(state, theta0, rho0, top=top,
+                                     pi_boundary=pi_boundary,
+                                     water_t=water_v0, solve_for_rho=True)
+
+
+def gc_balance(state, theta_v, H, pi0=None,
+               top=False, pi_boundary=Constant(1.0)):
+    """
+    Given vertical profiles for virtual potential temperature
+    and relative humidity compute hydrostatically balanced
+    dry density and water vapour profiles.
+    :arg state: The :class:`State` object.
+    :arg theta_v: The initial virtual potential temperature profile.
+    :arg water_t: The total water pseudo-mixing ratio profile.
+    :arg pi0: Optional function to put exner pressure into.
+    :arg top: If True, set a boundary condition at the top, otherwise
+              it will be at the bottom.
+    :arg pi_boundary: The value of pi on the specified boundary.
+    """
+
+    theta0 = state.fields('theta')
+    rho0 = state.fields('rho')
+    water_v0 = state.fields('water_v')
+
+    # Calculate hydrostatic Pi
+    Vt = theta0.function_space()
+    Vr = rho0.function_space()
+    Vv = state.spaces("Vv")
+    n = FacetNormal(state.mesh)
+    g = state.parameters.g
+    cp = state.parameters.cp
+    R_d = state.parameters.R_d
+    R_v = state.parameters.R_v
+
+    VDG = state.spaces("DG")
+    if any(deg > 2 for deg in VDG.ufl_element().degree()):
+        state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
+    quadrature_degree = (5, 5)
+    dxp = dx(degree=(quadrature_degree))
+
+    params = {'ksp_type': 'gmres',
+              'ksp_monitor_true_residual': True,
+              'snes_converged_reason': True,
+              'mat_type': 'aij',
+              'pc_type': 'lu',
+              'pc_factor_mat_solver_package': 'mumps'}
+
+    # apply first guesses
+    theta0.assign(theta_v)
+    water_v0.assign(0.01)
+    Pi = Function(Vr)
+
+    if top:
+        bmeasure = ds_t
+        bstring = "bottom"
+    else:
+        bmeasure = ds_b
+        bstring = "top"
+
+    # solve for Pi with theta_v and w_v constant
+    # then solve for theta_v and w_v with Pi constant
+    compressible_hydrostatic_balance(state, theta0, rho0, pi0=Pi, top=top,
+                                     pi_boundary=pi_boundary, water_t=water_v0)
+
+    # do full solver
+    try:
+        # now begin on Newton solver, setup up new mixed space
+        Z = MixedFunctionSpace((Vt, Vr, Vv))
+        z = Function(Z)
+
+        phi, psi, w = TestFunctions(Z)
+        w_v, rho, v = z.split()
+
+        # use previous values as first guesses for newton solver
+        w_v.assign(water_v0)
+        rho.interpolate(thermodynamics.rho(state.parameters, theta0, Pi))
+        
+        w_v, rho, v = split(z)
+
+        # define variables
+        pi = thermodynamics.pi(state.parameters, rho, theta0)
+        T = thermodynamics.T(state.parameters, theta0, pi, r_v=w_v)
+        p = thermodynamics.p(state.parameters, pi)
+        r_v = thermodynamics.r_v(state.parameters, H, T, p)
+        
+        F = (- phi * w_v * dxp
+             + phi * r_v * dxp
+             + cp * inner(v, w) * dxp
+             - cp * div(w * theta0 / (1.0 + w_v)) * pi * dxp
+             + psi * div(theta0 * v / (1.0 + w_v)) * dxp
+             + cp * inner(w, n) * pi_boundary * theta0 / (1.0 + w_v) * bmeasure
+             + g * inner(w, state.k) * dxp)
+        
+        bcs = [DirichletBC(Z.sub(3), 0.0, bstring)]
+
+        problem = NonlinearVariationalProblem(F, z, bcs=bcs)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        
+        solver.solve()
+        
+        w_v, rho, v = z.split()
+        
+        # assign final values
+        rho0.assign(rho)
+        water_v0.assign(w_v)
+
+    except:
+        logger.warning('Initial attempt at solving hydrostatic balance failed. Now try splitting up equations.')
+        # now begin on Newton solver, setup up new mixed space
+    
+        psi = TestFunction(Vt)
+        w_v = Function(Vt)
+
+        # use previous values as first guesses for newton solver
+        w_v.assign(water_v0)
+        rho0.interpolate(thermodynamics.rho(state.parameters, theta0, Pi))
+
+        for i in range(10):
+
+            # define variables
+            pi = thermodynamics.pi(state.parameters, rho0, theta0)
+            T = thermodynamics.T(state.parameters, theta0, pi, r_v=w_v)
+            p = thermodynamics.p(state.parameters, pi)
+            r_v = thermodynamics.r_v(state.parameters, H, T, p)
+
+            F = (- psi * w_v * dxp
+                 + psi * r_v * dxp
+            )
+        
+        problem = NonlinearVariationalProblem(F, w_v)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        solver.solve()
+        water_v0.assign(w_v)
+        compressible_hydrostatic_balance(state, theta0, rho0, pi0=Pi, top=top,
+                                         pi_boundary=pi_boundary, water_t=water_v0, solve_for_rho=True)
+
+        solver.solve()
+
+        # assign final values
         water_v0.assign(w_v)
 
     if pi0 is not None:
