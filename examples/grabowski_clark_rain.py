@@ -29,7 +29,7 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='grabowski_clark_rain', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='grabowski_clark_rain_nothetaforcing', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [RelativeHumidity(), Precipitation(), Temperature(), ExnerPi()]

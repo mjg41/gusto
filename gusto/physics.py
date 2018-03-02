@@ -11,7 +11,7 @@ from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 from scipy.special import gamma
 
 
-__all__ = ["Condensation", "Fallout", "Coalescence", "Collection", "Autoconversion"]
+__all__ = ["Condensation", "Fallout", "Coalescence", "Collection", "Autoconversion", "Evaporation"]
 
 
 class Physics(object, metaclass=ABCMeta):
@@ -55,6 +55,12 @@ class Condensation(Physics):
         self.water_v = state.fields('water_v')
         self.water_c = state.fields('water_c')
         rho = state.fields('rho')
+        water_l = self.water_c
+        try:
+            rain = state.fields('rain')
+            water_l = water_c + rain
+        except:
+            pass
 
         # declare function space
         Vt = self.theta.function_space()
@@ -75,8 +81,8 @@ class Condensation(Physics):
         p = thermodynamics.p(state.parameters, Pi)
         L_v = thermodynamics.Lv(state.parameters, T)
         R_m = R_d + R_v * self.water_v
-        c_pml = cp + c_pv * self.water_v + c_pl * self.water_c
-        c_vml = cv + c_vv * self.water_v + c_pl * self.water_c
+        c_pml = cp + c_pv * self.water_v + c_pl * water_l
+        c_vml = cv + c_vv * self.water_v + c_pl * water_l
 
         # use Teten's formula to calculate w_sat
         w_sat = thermodynamics.r_sat(state.parameters, T, p)
@@ -316,3 +322,87 @@ class Autoconversion(Physics):
         self.limit_rate.interpolate()
         self.water_c_projector.project()
         self.rain_projector.project()
+
+
+class Evaporation(Physics):
+    """
+    The process of evaporation of rain
+    back into water vapour.
+
+    :arg state: :class:`.State.` object.
+    """
+
+    def __init__(self, state):
+        super(Evaporation, self).__init__(state)
+
+        # obtain our fields
+        self.theta = state.fields('theta')
+        self.water_v = state.fields('water_v')
+        water_c = state.fields('water_c')
+        self.rain = state.fields('rain')
+        rho = state.fields('rho')
+
+        # declare function space
+        Vt = self.theta.function_space()
+
+        # define some parameters as attributes
+        dt = state.timestepping.dt
+        R_d = state.parameters.R_d
+        cp = state.parameters.cp
+        cv = state.parameters.cv
+        c_pv = state.parameters.c_pv
+        c_pl = state.parameters.c_pl
+        c_vv = state.parameters.c_vv
+        R_v = state.parameters.R_v
+
+        # make useful fields
+        Pi = thermodynamics.pi(state.parameters, rho, self.theta)
+        T = thermodynamics.T(state.parameters, self.theta, Pi, r_v=self.water_v)
+        p = thermodynamics.p(state.parameters, Pi)
+        L_v = thermodynamics.Lv(state.parameters, T)
+        R_m = R_d + R_v * self.water_v
+        c_pml = cp + c_pv * self.water_v + c_pl * (water_c + self.rain)
+        c_vml = cv + c_vv * self.water_v + c_pl * (water_c + self.rain)
+
+        # use Teten's formula to calculate w_sat
+        w_sat = thermodynamics.r_sat(state.parameters, T, p)
+
+        water_l = 1000.0
+        mass_threshold = 1e-10
+        mu = 0
+        N_r = 1e5
+        c = pi * water_l / 6
+        d = 3
+        Lambda = (N_r * c * gamma(1 + mu + d) / (gamma(1 + mu) * self.rain)) ** (1 / d) * 1e6
+        B = 1. / 0.166
+        phi = 1 - (0.534 / (1 + B / Lambda) ** 2.5 + 0.142 / (1 + 2 * B / Lambda) ** 2.5
+                   + 0.076 / (1 + 3 * B / Lambda) ** 2.5)
+        rho_bar = rho / 1000
+        S = 100 * (self.water_v / w_sat - 1)
+
+        # make appropriate condensation rate
+        dot_r_evap = ((4.68e5 * rho_bar * w_sat * self.rain * S * Lambda ** 2)
+                      * (0.78 + 0.306 * phi * Lambda ** -0.5) /
+                      (dt * (1.0 + (1.282 * rho_bar * w_sat) / (T ** 2.0))))
+
+        # make cond_rate function, that needs to be the same for all updates in one time step
+        self.evap_rate = Function(Vt)
+
+        # adjust cond rate so negative concentrations don't occur
+        self.lim_evap_rate = Interpolator(conditional(dot_r_evap < 0,
+                                                      max_value(dot_r_evap, - self.rain / dt),
+                                                      0.0), self.evap_rate)
+
+        # tell the prognostic fields what to update to
+        self.water_v_new = Interpolator(self.water_v - dt * self.evap_rate, Vt)
+        self.rain_new = Interpolator(self.rain + dt * self.evap_rate, Vt)
+        self.theta_new = Interpolator(self.theta *
+                                      (1.0 + dt * self.evap_rate *
+                                       (cv * L_v / (c_vml * cp * T) -
+                                        R_v * cv * c_pml / (R_m * cp * c_vml))), Vt)
+
+    def apply(self):
+        self.lim_evap_rate.interpolate()
+        self.theta.assign(self.theta_new.interpolate())
+        self.water_v.assign(self.water_v_new.interpolate())
+        self.rain.assign(self.rain_new.interpolate())

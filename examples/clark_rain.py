@@ -13,7 +13,7 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 10.
+    deltax = 30.
     tmax = 480.
 
 L = 3600.
@@ -29,10 +29,10 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='clark_rain', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='clark_evap', dumpfreq=20, dumplist=['u', 'rho', 'theta'], perturbation_fields=['theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [RelativeHumidity(), Precipitation()]
+diagnostic_fields = [RelativeHumidity()]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -74,18 +74,25 @@ if recovered:
 
 # Define constant theta_e and water_t
 Tsurf = 283.0
+psurf = 85000.
+humidity = 0.2
+Pi_surf = (psurf / state.parameters.p_0) ** state.parameters.kappa
+r_v_surf = thermodynamics.r_v(state.parameters, 0.2, Tsurf, psurf)
+epsilon = state.parameters.R_d / state.parameters.R_v
+theta_surf = thermodynamics.theta(state.parameters, Tsurf, psurf)
 S = 1.3e-5
-Hum = Constant(0.2)
-theta_d = Function(Vt).interpolate(Tsurf * exp(S*z))
+Hum = Constant(humidity)
+theta_d = Function(Vt).interpolate(theta_surf * exp(S*z))
 RH = Function(Vt).interpolate(Hum)
 
 # Calculate hydrostatic fields
-unsaturated_hydrostatic_balance(state, theta_d, RH, pi_boundary=Constant(0.85))
+unsaturated_hydrostatic_balance(state, theta_d, RH, pi_boundary=Constant(Pi_surf))
 
 # make mean fields
 theta_b = Function(Vt).assign(theta0)
 rho_b = Function(Vr).assign(rho0)
 water_vb = Function(Vt).assign(water_v0)
+theta_d = Function(Vt).assign(theta0 / (1 + water_v0 / epsilon))
 
 # define perturbation
 xc = L / 2
@@ -105,7 +112,7 @@ pi = thermodynamics.pi(state.parameters, rho0, theta0)
 w_v = Function(Vt)
 psi = TestFunction(Vt)
 p = thermodynamics.p(state.parameters, pi)
-T = thermodynamics.T(state.parameters, theta0, pi, r_v=w_v)
+T = thermodynamics.T(state.parameters, theta_d, pi)
 r_v = thermodynamics.r_v(state.parameters, H, T, p)
 
 quadrature_degree = (4, 4)
@@ -115,12 +122,10 @@ w_problem = NonlinearVariationalProblem(w_functional, w_v)
 w_solver = NonlinearVariationalSolver(w_problem)
 w_solver.solve()
 
+theta0.assign(theta_d * (1 + w_v / epsilon))
 water_v0.assign(w_v)
 water_c0.assign(0.0)
 rain0.assign(0.0)
-
-epsilon = state.parameters.R_d / state.parameters.R_v
-theta0.assign(theta_d * (1 + water_v0 / epsilon))
 
 # find perturbed rho
 gamma = TestFunction(Vr)
@@ -184,7 +189,7 @@ if diffusion:
                                                  mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state), Fallout(state, moments=0), Coalescence(state)]
+physics_list = [Condensation(state), Fallout(state), Coalescence(state), Evaporation(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
