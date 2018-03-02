@@ -29,7 +29,7 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='dry_bf_recovered_limiter_test', dumpfreq=20, dumplist=['u'], perturbation_fields=['theta'], log_level='INFO')
+output = OutputParameters(dirname='dry_bf', dumpfreq=1, dumplist=['u'], perturbation_fields=['theta', 'rho'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = []
@@ -116,7 +116,7 @@ else:
     thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
 
 advected_fields = [('rho', SSPRK3(state, rho0, rhoeqn)),
-                   ('theta', SSPRK3(state, theta0, thetaeqn, limiter=VertexBasedLimiter(VDG1)))]
+                   ('theta', SSPRK3(state, theta0, thetaeqn))]
 if recovered:
     advected_fields.append(('u', SSPRK3(state, u0, ueqn)))
 else:

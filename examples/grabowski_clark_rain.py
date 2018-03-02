@@ -4,7 +4,8 @@ from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
     TestFunction, dx, TrialFunction, Constant, Function, \
     LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
     BrokenElement, FunctionSpace, VectorFunctionSpace, \
-    NonlinearVariationalProblem, NonlinearVariationalSolver, exp
+    NonlinearVariationalProblem, NonlinearVariationalSolver, exp, \
+    MixedFunctionSpace, split, TestFunctions
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
@@ -29,7 +30,7 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='grabowski_clark_rain_nothetaforcing', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='grabowski_clark_rain_newsetup', dumpfreq=1, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [RelativeHumidity(), Precipitation(), Temperature(), ExnerPi()]
@@ -106,35 +107,46 @@ H_expr = conditional(r > r1, 0.0,
                                  (1 - Hum) * (cos(pi * (r - r2) / (2 * (r1 - r2)))) ** 2, 1 - Hum))
 H_pert = Function(Vt).interpolate(H_expr)
 
-H = Function(Vt).assign(RH + H_pert)
+RH = Function(Vt).assign(RH + H_pert)
 
-pi = thermodynamics.pi(state.parameters, rho0, theta0)
-w_v = Function(Vt)
-psi = TestFunction(Vt)
+# find perturbed values
+Z = MixedFunctionSpace((Vr, Vt, Vt))
+z = Function(Z)
+
+psi, gamma, phi = TestFunctions(Z)
+rho, theta_v, w_v = z.split()
+
+rho.assign(rho0)
+theta_v.assign(theta0)
+w_v.assign(water_v0)
+
+rho, theta_v, w_v = split(z)
+
+Pi = thermodynamics.pi(state.parameters, rho0, theta0)
+
+pi = thermodynamics.pi(state.parameters, rho, theta_v)
 p = thermodynamics.p(state.parameters, pi)
-T = thermodynamics.T(state.parameters, theta_d, pi)
-r_v = thermodynamics.r_v(state.parameters, H, T, p)
+T = thermodynamics.T(state.parameters, theta_v, pi, r_v=w_v)
+rh = thermodynamics.RH(state.parameters, w_v, T, p)
 
-quadrature_degree = (4, 4)
-dxp = dx(degree=(quadrature_degree))
-w_functional = (psi * w_v * dxp - psi * r_v * dxp)
-w_problem = NonlinearVariationalProblem(w_functional, w_v)
+F = (-psi * Pi * dxp
+     + psi * pi * dxp
+     - gamma * theta_v * dxp
+     + gamma * theta_d * (1 + w_v / epsilon) * dxp
+     - phi * RH * dxp
+     + phi * rh * dxp)
+
+w_problem = NonlinearVariationalProblem(F, z)
 w_solver = NonlinearVariationalSolver(w_problem)
 w_solver.solve()
 
-theta0.assign(theta_d * (1 + w_v / epsilon))
+rho, theta_v, w_v = z.split()
+
+theta0.assign(theta_v)
 water_v0.assign(w_v)
+rho0.assign(rho)
 water_c0.assign(0.0)
 rain0.assign(0.0)
-
-# find perturbed rho
-gamma = TestFunction(Vr)
-rho_trial = TrialFunction(Vr)
-a = gamma * rho_trial * dxp
-L = gamma * (rho_b * theta_b / theta0) * dxp
-rho_problem = LinearVariationalProblem(a, L, rho0)
-rho_solver = LinearVariationalSolver(rho_problem)
-rho_solver.solve()
 
 # initialise fields
 state.initialise([('u', u0),
