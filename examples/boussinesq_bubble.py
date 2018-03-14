@@ -25,7 +25,7 @@ mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 
 fieldlist = ['u', 'p', 'b']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='boussinesq_bubble', dumpfreq=5, dumplist=['u', 'p', 'b'], perturbation_fields=[], log_level='INFO')
+output = OutputParameters(dirname='boussinesq_bubble', dumpfreq=1, dumplist=['u', 'p', 'b'], perturbation_fields=[], log_level='INFO')
 params = EadyParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [B_Grad(), U_Grad()]

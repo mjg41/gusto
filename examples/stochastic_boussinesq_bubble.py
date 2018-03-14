@@ -12,7 +12,7 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 100.
+    deltax = 50.
     tmax = 200.
 
 L = 10000.
@@ -25,10 +25,10 @@ mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 
 fieldlist = ['u', 'p', 'b']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='stoch_bouss_bubble_recovered', dumpfreq=5, dumplist=['u', 'p', 'b'], perturbation_fields=[], log_level='INFO')
+output = OutputParameters(dirname='stoch_bouss_bubble', dumpfreq=1, dumplist=['u', 'p', 'b'], perturbation_fields=[], log_level='INFO')
 params = EadyParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = []
+diagnostic_fields = [B_Grad, U_Grad]
 
 state = State(mesh, vertical_degree=0, horizontal_degree=0,
               family="CG",
