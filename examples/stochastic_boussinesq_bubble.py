@@ -28,7 +28,7 @@ timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
 output = OutputParameters(dirname='stoch_bouss_bubble', dumpfreq=1, dumplist=['u', 'p', 'b'], perturbation_fields=[], log_level='INFO')
 params = EadyParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [B_Grad, U_Grad]
+diagnostic_fields = [B_Grad(), U_Grad()]
 
 state = State(mesh, vertical_degree=0, horizontal_degree=0,
               family="CG",
