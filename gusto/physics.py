@@ -168,5 +168,5 @@ class UpdateNoise(Physics):
         
 
     def apply(self):
-        [dw.assign(5000 * np.random.randn()) for dw in self.dW]
+        [dw.assign(10000 * np.random.randn()) for dw in self.dW]
         self.Xi.project(self.xi)

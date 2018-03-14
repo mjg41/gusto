@@ -12,7 +12,7 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 50.
+    deltax = 100.
     tmax = 200.
 
 L = 10000.
