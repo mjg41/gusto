@@ -24,12 +24,12 @@ ncolumns = int(L/deltax)
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 diffusion = False
-recovered = True
+recovered = False
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='dry_bf', dumpfreq=1, dumplist=['u'], perturbation_fields=['theta', 'rho'], log_level='INFO')
+output = OutputParameters(dirname='dry_bf2', dumpfreq=1, dumplist=['u'], perturbation_fields=['theta', 'rho'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = []

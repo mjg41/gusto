@@ -257,7 +257,7 @@ class ExnerPi(DiagnosticField):
         rho = state.fields(self.rho_name)
         theta = state.fields(self.theta_name)
         Pi = thermodynamics.pi(state.parameters, rho, theta)
-        return self.field.interpolate(Pi)
+        return self.field.project(Pi)
 
 
 class Theta_e(DiagnosticField):

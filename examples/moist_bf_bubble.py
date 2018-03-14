@@ -13,7 +13,7 @@ if '--running-tests' in sys.argv:
     deltax = 1000.
 else:
     deltax = 100.
-    tmax = 1000.
+    tmax = 2.
 
 L = 10000.
 H = 10000.
@@ -28,10 +28,10 @@ degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='moist_bf', dumpfreq=2, dumplist=['u'], perturbation_fields=['theta', 'rho'], log_level='INFO')
+output = OutputParameters(dirname='moist_bf', dumpfreq=1, dumplist=['u'], perturbation_fields=['theta', 'rho'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [Theta_e()]
+diagnostic_fields = [Theta_e(), ExnerPi(), Perturbation("ExnerPi")]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
@@ -110,6 +110,8 @@ rho_problem = LinearVariationalProblem(a, L, rho0)
 rho_solver = LinearVariationalSolver(rho_problem)
 rho_solver.solve()
 
+Pi0 = state.fields("ExnerPibar", VCG1).project(thermodynamics.pi(state.parameters, rho_b, theta_b))
+
 # find perturbed water_v
 w_v = Function(Vt)
 phi = TestFunction(Vt)
@@ -126,6 +128,8 @@ w_solver.solve()
 
 water_v0.assign(w_v)
 water_c0.assign(water_t - water_v0)
+
+
 
 # initialise fields
 state.initialise([('u', u0),
