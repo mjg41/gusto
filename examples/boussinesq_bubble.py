@@ -85,7 +85,6 @@ b_pert = Function(Vb).interpolate(conditional(r > rc, 0.0,
 # define initial buoyancy
 b0.assign(b_b + b_pert)
 p0.assign(p_b)
-theta_grad.project(grad(b0))
 
 # initialise fields
 state.initialise([('u', u0),
