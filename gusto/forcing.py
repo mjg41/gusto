@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from firedrake import Function, split, TrialFunction, TestFunction, \
     FacetNormal, inner, dx, cross, div, jump, avg, dS_v, \
     DirichletBC, LinearVariationalProblem, LinearVariationalSolver, \
-    dot, dS, Constant, as_vector, SpatialCoordinate
+    dot, dS, Constant, as_vector, SpatialCoordinate, grad
 from gusto.configuration import logger, DEBUG
 from gusto import thermodynamics
 
@@ -24,7 +24,7 @@ class Forcing(object, metaclass=ABCMeta):
     term - these will be multiplied by the appropriate test function.
     """
 
-    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None):
+    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None, stochastic=False):
         self.state = state
         if linear:
             self.euler_poincare = False
@@ -50,6 +50,7 @@ class Forcing(object, metaclass=ABCMeta):
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
         self.moisture = moisture
+        self.stochastic = stochastic
 
         # some constants to use for scaling terms
         self.scaling = Constant(1.)
@@ -76,6 +77,15 @@ class Forcing(object, metaclass=ABCMeta):
         u0 = split(self.x0)[0]
         return inner(u0, self.state.k)*inner(self.test, self.state.k)*dx
 
+    def stochastic_term(self):
+        u0 = split(self.x0)[0]
+        Xi = self.state.fields('Xi')
+        L = 0
+#        import pdb; pdb.set_trace()
+        for i in range(u0.__len__()):
+            L -= inner(self.test, u0[i] * grad(Xi[i])) * dx
+        return L
+
     @abstractmethod
     def pressure_gradient_term(self):
         pass
@@ -100,6 +110,8 @@ class Forcing(object, metaclass=ABCMeta):
         # hydrostatic term has no scaling factor
         if self.hydrostatic:
             L += (2*self.impl-1)*self.hydrostatic_term()
+        if self.stochastic:
+            L += self.stochastic_term()
         return L
 
     def _build_forcing_solvers(self):

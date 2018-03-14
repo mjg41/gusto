@@ -54,7 +54,7 @@ class Advection(object, metaclass=ABCMeta):
     """
 
     def __init__(self, state, field, equation=None, *, solver_parameters=None,
-                 limiter=None):
+                 limiter=None, stochastic=False):
 
         if equation is not None:
 
@@ -64,6 +64,9 @@ class Advection(object, metaclass=ABCMeta):
             # get ubar from the equation class
             self.ubar = self.equation.ubar
             self.dt = self.state.timestepping.dt
+            self.stochastic = stochastic
+            if self.stochastic:
+                self.Xi = state.fields('Xi')
 
             # get default solver options if none passed in
             if solver_parameters is None:
@@ -128,7 +131,10 @@ class Advection(object, metaclass=ABCMeta):
     def update_ubar(self, xn, xnp1, alpha):
         un = xn.split()[0]
         unp1 = xnp1.split()[0]
-        self.ubar.assign(un + alpha*(unp1-un))
+        if self.stochastic:
+            self.ubar.assign(un + alpha*(unp1-un) + self.Xi)
+        else:
+            self.ubar.assign(un + alpha*(unp1-un))
 
     @cached_property
     def solver(self):
@@ -181,9 +187,9 @@ class ExplicitAdvection(Advection):
     """
 
     def __init__(self, state, field, equation=None, *, subcycles=None,
-                 solver_parameters=None, limiter=None):
+                 solver_parameters=None, limiter=None, stochastic=False):
         super().__init__(state, field, equation,
-                         solver_parameters=solver_parameters, limiter=limiter)
+                         solver_parameters=solver_parameters, limiter=limiter, stochastic=stochastic)
 
         # if user has specified a number of subcycles, then save this
         # and rescale dt accordingly; else perform just one cycle using dt

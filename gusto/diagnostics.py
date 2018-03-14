@@ -1,12 +1,14 @@
 from firedrake import op2, assemble, dot, dx, FunctionSpace, Function, sqrt, \
     TestFunction, TrialFunction, CellNormal, Constant, cross, grad, inner, \
     LinearVariationalProblem, LinearVariationalSolver, FacetNormal, \
-    ds, ds_b, ds_v, ds_t, dS_v, div, avg, jump, DirichletBC
+    ds, ds_b, ds_v, ds_t, dS_v, div, avg, jump, DirichletBC, VectorFunctionSpace, \
+    Interpolator, TensorFunctionSpace
 from abc import ABCMeta, abstractmethod, abstractproperty
 from gusto import thermodynamics
+from gusto.advection import Recoverer
 import numpy as np
 
-__all__ = ["Diagnostics", "CourantNumber", "VelocityX", "VelocityZ", "VelocityY", "Energy", "KineticEnergy", "CompressibleKineticEnergy", "ExnerPi", "Sum", "Difference", "SteadyStateError", "Perturbation", "PotentialVorticity", "Theta_e", "InternalEnergy", "HydrostaticImbalance", "RelativeVorticity", "AbsoluteVorticity", "ShallowWaterKineticEnergy", "ShallowWaterPotentialEnergy", "ShallowWaterPotentialEnstrophy", "Precipitation"]
+__all__ = ["Diagnostics", "CourantNumber", "VelocityX", "VelocityZ", "VelocityY", "Energy", "KineticEnergy", "CompressibleKineticEnergy", "ExnerPi", "Sum", "Difference", "SteadyStateError", "Perturbation", "PotentialVorticity", "Theta_e", "InternalEnergy", "HydrostaticImbalance", "RelativeVorticity", "AbsoluteVorticity", "ShallowWaterKineticEnergy", "ShallowWaterPotentialEnergy", "ShallowWaterPotentialEnstrophy", "Precipitation", "B_Grad", "U_Grad"]
 
 
 class Diagnostics(object):
@@ -46,12 +48,18 @@ void maxify(double *a, double *b) {
 
     @staticmethod
     def rms(f):
-        area = assemble(1*dx(domain=f.ufl_domain()))
-        return sqrt(assemble(dot(f, f)*dx)/area)
+        if len(f.ufl_shape) < 2:
+            area = assemble(1*dx(domain=f.ufl_domain()))
+            return sqrt(assemble(dot(f, f)*dx)/area)
+        else:
+            pass
 
     @staticmethod
     def l2(f):
-        return sqrt(assemble(dot(f, f)*dx))
+        if len(f.ufl_shape) < 2:
+            return sqrt(assemble(dot(f, f)*dx))
+        else:
+            pass
 
     @staticmethod
     def total(f):
@@ -298,6 +306,46 @@ class InternalEnergy(DiagnosticField):
         T = thermodynamics.T(state.parameters, theta, pi, r_v=w_v)
 
         return self.field.interpolate(thermodynamics.internal_energy(state.parameters, rho, T, r_v=w_v, r_l=w_c))
+
+
+class B_Grad(DiagnosticField):
+    name = "b_grad"
+
+    def setup(self, state):
+        if not self._initialised:
+            space = VectorFunctionSpace(state.mesh, "DG", 1)
+            super(B_Grad, self).setup(state, space=space)
+            b = state.fields('b')
+            b_dg1 = Function(FunctionSpace(state.mesh, "DG", 1))
+            self.b_cg1 = Function(FunctionSpace(state.mesh, "CG", 1))
+            self.interpolator = Interpolator(b, b_dg1)
+            self.recoverer = Recoverer(b_dg1, self.b_cg1)
+
+    def compute(self, state):
+        self.interpolator.interpolate()
+        self.recoverer.project()
+        
+        return self.field.project(grad(self.b_cg1))
+
+
+class U_Grad(DiagnosticField):
+    name = "u_grad"
+
+    def setup(self, state):
+        if not self._initialised:
+            space = TensorFunctionSpace(state.mesh, "DG", 1)
+            super(U_Grad, self).setup(state, space=space)
+            u = state.fields('u')
+            u_dg1 = Function(VectorFunctionSpace(state.mesh, "DG", 1))
+            self.u_cg1 = Function(VectorFunctionSpace(state.mesh, "CG", 1))
+            self.interpolator = Interpolator(u, u_dg1)
+            self.recoverer = Recoverer(u_dg1, self.u_cg1)
+
+    def compute(self, state):
+        self.interpolator.interpolate()
+        self.recoverer.project()
+        
+        return self.field.project(grad(self.u_cg1))
 
 
 class HydrostaticImbalance(DiagnosticField):

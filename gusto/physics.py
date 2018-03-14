@@ -2,10 +2,11 @@ from abc import ABCMeta, abstractmethod
 from gusto.transport_equation import EmbeddedDGAdvection
 from gusto.advection import SSPRK3
 from firedrake import exp, Interpolator, conditional, Function, \
-    min_value, max_value, as_vector
+    min_value, max_value, as_vector, Constant
+import numpy as np
 
 
-__all__ = ["Condensation", "Fallout"]
+__all__ = ["Condensation", "Fallout", "UpdateNoise"]
 
 
 class Physics(object, metaclass=ABCMeta):
@@ -142,3 +143,30 @@ class Fallout(Physics):
         for k in range(self.state.timestepping.maxk):
             self.advection_method.update_ubar(self.v, self.v, 0)
             self.advection_method.apply(self.rain, self.rain)
+
+
+class UpdateNoise(Physics):
+    """
+    Update the stochastic basis functions
+    by finding the random numbers.
+
+    :arg state :class: `.State.` object.
+    :arg xis: a list of the psi basis functions.
+    """
+
+    def __init__(self, state, xis):
+        super(UpdateNoise, self).__init__(state)
+
+        self.Xi = state.fields('Xi')
+        self.xi = 0
+        self.dW = []
+        # make a gradperp
+        gradperp = lambda u: as_vector([-u.dx(1), u.dx(0)])
+        for i in range(len(xis)):
+            self.dW.append(Constant(0.0))
+            self.xi += self.dW[i] * gradperp(xis[i])
+        
+
+    def apply(self):
+        [dw.assign(10000 * np.random.randn()) for dw in self.dW]
+        self.Xi.project(self.xi)
