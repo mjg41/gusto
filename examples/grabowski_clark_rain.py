@@ -14,7 +14,7 @@ if '--running-tests' in sys.argv:
     tmax = 10.
     deltax = 1000.
 else:
-    deltax = 30.
+    deltax = 20.
     tmax = 600.
 
 L = 3600.
@@ -201,7 +201,7 @@ if diffusion:
                                                  mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state), Fallout(state, moments=0), Coalescence(state)]
+physics_list = [Condensation(state, weak=True), Fallout(state, moments=0), Coalescence(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
