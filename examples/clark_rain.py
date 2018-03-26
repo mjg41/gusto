@@ -189,7 +189,7 @@ if diffusion:
                                                  mu=Constant(10./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state), Fallout(state), Coalescence(state), Evaporation(state)]
+physics_list = [Condensation(state, weak=True), Fallout(state), Coalescence(state), Evaporation(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
