@@ -33,7 +33,7 @@ timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
 output = OutputParameters(dirname='grabowski_clark_rain_norain', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [RelativeHumidity(), Precipitation(), Temperature(), ExnerPi()]
+diagnostic_fields = [RelativeHumidity(), Temperature(), ExnerPi()]
 
 state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
