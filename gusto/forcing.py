@@ -24,7 +24,7 @@ class Forcing(object, metaclass=ABCMeta):
     term - these will be multiplied by the appropriate test function.
     """
 
-    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None):
+    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None, eddy_mixing=False):
         self.state = state
         if linear:
             self.euler_poincare = False
@@ -50,6 +50,7 @@ class Forcing(object, metaclass=ABCMeta):
         self.topography = hasattr(state.fields, "topography")
         self.extra_terms = extra_terms
         self.moisture = moisture
+        self.eddy_mixing = eddy_mixing
 
         # some constants to use for scaling terms
         self.scaling = Constant(1.)
@@ -206,6 +207,19 @@ class CompressibleForcing(Forcing):
         L = -theta0 * (R_m / c_vml - (R_d * c_pml) / (cp * c_vml)) * div(u0)
 
         return self.scaling * L
+
+    def eddy_mixing(self):
+
+        u0, rho0, _ = split(self.x0)
+        Vd = TensorFunctionSpace(self.state.mesh, "CG", 1)
+        D = Function(Vd)
+        tau = Function(Vd)
+        J = Function(Vu)
+
+        J.project(
+        L = (1 / rho0) * inner(self.test, J) * dx
+        
+        return L
 
     def _build_forcing_solvers(self):
 
