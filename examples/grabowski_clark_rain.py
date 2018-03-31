@@ -24,13 +24,13 @@ ncolumns = int(L/deltax)
 
 m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-diffusion = False
+diffusion = True
 recovered = True
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
-output = OutputParameters(dirname='grabowski_clark_rain_norain', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
+output = OutputParameters(dirname='grabowski_clark_rain_viscous_10', dumpfreq=10, dumplist=['u', 'rho', 'theta'], perturbation_fields=['rho', 'theta', 'water_v'], log_level='INFO')
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [RelativeHumidity(), Temperature(), ExnerPi()]
@@ -197,11 +197,11 @@ diffused_fields = []
 
 mu = 5. if recovered else 10.
 if diffusion:
-    diffused_fields.append(('u', InteriorPenalty(state, Vu, kappa=Constant(60.),
-                                                 mu=Constant(10./deltax), bcs=bcs)))
+    diffused_fields.append(('u', InteriorPenalty(state, Vu, kappa=Constant(10.),
+                                                 mu=Constant(1./deltax), bcs=bcs)))
 
 # define condensation
-physics_list = [Condensation(state, weak=True), Coalescence(state)]
+physics_list = [Condensation(state, weak=True), Fallout(state, moments=0), Coalescence(state)]
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
