@@ -428,6 +428,9 @@ class EddyMixing(Physics):
         dt = state.timestepping.dt
         self.du = state.fields('turbulence', Vu)
         rho0 = state.fields('rho')
+        self.theta0 = state.fields('theta')
+        Vt = self.theta0.function_space()
+        self.dtheta = state.fields('eddy_heat_flux', Vt)
 
         w = TestFunction(Vu)
         trial = TrialFunction(Vw)
@@ -465,9 +468,10 @@ class EddyMixing(Physics):
         for i in range(dim):
             du_expr.append(0)
             for j in range(dim):
-                du_expr[i] += tau[i,j].dx(j)
+                du_expr[i] += dt * tau[i,j].dx(j) / rho0
         
         self.du_projector = Projector(as_vector(du_expr), self.du)
+        self.dtheta_projector = Projector(dt / rho0 * div(rho0 * K * grad(self.theta0)), self.dtheta)
         
         #problem = LinearVariationalProblem(a, L, self.du)
         #self.solver = LinearVariationalSolver(problem)
@@ -477,5 +481,6 @@ class EddyMixing(Physics):
         self.K_projector.project()
         self.tau_projector.project()
         self.du_projector.project()
-        #self.solver.solve()
+        self.dtheta_projector.project()
         self.u0.project(self.u0 + self.du)
+        self.theta0.assign(self.theta0 + self.dtheta)
