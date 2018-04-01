@@ -7,7 +7,8 @@ from firedrake import Projector, Interpolator, conditional, Function, \
     min_value, max_value, TestFunction, dx, as_vector, \
     NonlinearVariationalProblem, NonlinearVariationalSolver, Constant, pi, \
     FunctionSpace, BrokenElement, TrialFunction, LinearVariationalProblem, \
-    LinearVariationalSolver, inner, div
+    LinearVariationalSolver, inner, div, VectorFunctionSpace, TensorFunctionSpace, \
+    dS_h, dS_v, dot, jump, dS, grad, Identity, FacetNormal
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 from scipy.special import gamma
 
@@ -421,42 +422,60 @@ class EddyMixing(Physics):
 
         self.u0 = state.fields('u')
         Vu = self.u0.function_space()
+        V = FunctionSpace(state.mesh, "CG", 2)
+        Vw = VectorFunctionSpace(state.mesh, "CG", 2)
+        Vd = TensorFunctionSpace(state.mesh, "CG", 2)
         dt = state.timestepping.dt
-        self.du = Function(Vu)
+        self.du = state.fields('turbulence', Vu)
         rho0 = state.fields('rho')
 
-        test = TestFunction(Vu)
-        trial = TrialFunction(Vu)
-        a = inner(test, trial) * dx
+        w = TestFunction(Vu)
+        trial = TrialFunction(Vw)
+        a = inner(w, trial) * dx
 
-        # make deformation tensor of expressions
-        D = []
-        for i in range(self.u0.__len__()):
-            D.append([])
-            for j in range(self.u0.__len__()):
-                D[i].append(self.u0[i].dx(j) + self.u0[j].dx(i) - (2. / 3.) * div(self.u0))
+        if Vu.extruded:
+            dS = (dS_h + dS_v)
+        else:
+            dS = dS
 
-        # find magntiude of deformation
+        K = Function(V)
+        D = Function(Vd)
+        tau = Function(Vd)
+
+        dim = self.u0.__len__()
+
         Def2 = 0
-        for i in range(len(D)):
-            for j in range(len(D)):
-                Def2 += D[i][j] ** 2
+        for i in range(dim):
+            for j in range(dim):
+                Def2 += 0.5 * (D[i,j]) ** 2
 
-        # make constant
-        K = (k * deltax) ** 2 * Def2 ** 0.5
-
-        # make forcing
-        L = 0
-        tau = []
-        for i in range(self.u0.__len__()):
-            tau.append([])
-            for j in range(self.u0.__len__()):
-                tau[i].append(rho0 * K * D[i][j])
-                L += dt * test[i] * tau[i][j].dx(j) * dx 
+        self.D_projector = Projector(grad(self.u0) + grad(self.u0).T - (2./3.) * div(self.u0) * Identity(dim), D)
+        self.K_projector = Projector((k * deltax) ** 2 * Def2 ** 0.5, K)
+        self.tau_projector = Projector(rho0 * K * D, tau)
         
-        problem = LinearVariationalProblem(a, L, self.du)
-        self.solver = LinearVariationalSolver(problem)
+        L_expr = 0
+        for i in range(dim):
+            for j in range(dim):
+                L_expr += tau[i,j] * grad(w)[i,j] 
+
+        n = FacetNormal(state.mesh)
+        L = dt / rho0 * jump(inner(dot(w, tau), n)) * dS #- dt / rho0 * L_expr * dx
+
+        du_expr = []
+        for i in range(dim):
+            du_expr.append(0)
+            for j in range(dim):
+                du_expr[i] += tau[i,j].dx(j)
+        
+        self.du_projector = Projector(as_vector(du_expr), self.du)
+        
+        #problem = LinearVariationalProblem(a, L, self.du)
+        #self.solver = LinearVariationalSolver(problem)
 
     def apply(self):
-        self.solver.solve()
+        self.D_projector.project()
+        self.K_projector.project()
+        self.tau_projector.project()
+        self.du_projector.project()
+        #self.solver.solve()
         self.u0.project(self.u0 + self.du)
