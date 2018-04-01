@@ -6,12 +6,13 @@ from gusto import thermodynamics
 from firedrake import Projector, Interpolator, conditional, Function, \
     min_value, max_value, TestFunction, dx, as_vector, \
     NonlinearVariationalProblem, NonlinearVariationalSolver, Constant, pi, \
-    FunctionSpace, BrokenElement
+    FunctionSpace, BrokenElement, TrialFunction, LinearVariationalProblem, \
+    LinearVariationalSolver, inner, div
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 from scipy.special import gamma
 
 
-__all__ = ["Condensation", "Fallout", "Coalescence", "Collection", "Autoconversion", "Evaporation"]
+__all__ = ["Condensation", "Fallout", "Coalescence", "Collection", "Autoconversion", "Evaporation", "EddyMixing"]
 
 
 class Physics(object, metaclass=ABCMeta):
@@ -406,3 +407,56 @@ class Evaporation(Physics):
         self.theta.assign(self.theta_new.interpolate())
         self.water_v.assign(self.water_v_new.interpolate())
         self.rain.assign(self.rain_new.interpolate())
+
+
+class EddyMixing(Physics):
+    """
+    Represent the effect of subgrid scale turbulence.
+    """
+    def __init__(self, state, deltax, k=1):
+        super(EddyMixing, self).__init__(state)
+
+        self.k = k
+        self.deltax = deltax
+
+        self.u0 = state.fields('u')
+        Vu = self.u0.function_space()
+        dt = state.timestepping.dt
+        self.du = Function(Vu)
+        rho0 = state.fields('rho')
+
+        test = TestFunction(Vu)
+        trial = TrialFunction(Vu)
+        a = inner(test, trial) * dx
+
+        # make deformation tensor of expressions
+        D = []
+        for i in range(self.u0.__len__()):
+            D.append([])
+            for j in range(self.u0.__len__()):
+                D[i].append(self.u0[i].dx(j) + self.u0[j].dx(i) - (2. / 3.) * div(self.u0))
+
+        # find magntiude of deformation
+        Def2 = 0
+        for i in range(len(D)):
+            for j in range(len(D)):
+                Def2 += D[i][j] ** 2
+
+        # make constant
+        K = (k * deltax) ** 2 * Def2 ** 0.5
+
+        # make forcing
+        L = 0
+        tau = []
+        for i in range(self.u0.__len__()):
+            tau.append([])
+            for j in range(self.u0.__len__()):
+                tau[i].append(rho0 * K * D[i][j])
+                L += dt * test[i] * tau[i][j].dx(j) * dx 
+        
+        problem = LinearVariationalProblem(a, L, self.du)
+        self.solver = LinearVariationalSolver(problem)
+
+    def apply(self):
+        self.solver.solve()
+        self.u0.project(self.u0 + self.du)

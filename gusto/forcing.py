@@ -91,6 +91,8 @@ class Forcing(object, metaclass=ABCMeta):
             L += self.euler_poincare_term()
         if self.topography:
             L += self.topography_term()
+        if self.eddy_mixing:
+            L += self.eddy_mixing_term()
         if self.extra_terms is not None:
             L += inner(self.test, self.extra_terms)*dx
         # scale L
@@ -208,16 +210,36 @@ class CompressibleForcing(Forcing):
 
         return self.scaling * L
 
-    def eddy_mixing(self):
+    def eddy_mixing_term(self):
 
         u0, rho0, _ = split(self.x0)
-        Vd = TensorFunctionSpace(self.state.mesh, "CG", 1)
-        D = Function(Vd)
-        tau = Function(Vd)
-        J = Function(Vu)
+        k = 0.01
+        Delta = 20.0
 
-        J.project(
-        L = (1 / rho0) * inner(self.test, J) * dx
+        # make deformation tensor of expressions
+        D = []
+        for i in range(u0.__len__()):
+            D.append([])
+            for j in range(u0.__len__()):
+                D[i].append(u0[i].dx(j) + u0[j].dx(i) - (2. / 3.) * div(u0))
+
+        # find magntiude of deformation
+        Def2 = 0
+        for i in range(len(D)):
+            for j in range(len(D)):
+                Def2 += D[i][j] ** 2
+
+        # make constant
+        K = (k * Delta) ** 2 * Def2 ** 0.5
+
+        # make forcing
+        L = 0
+        tau = []
+        for i in range(u0.__len__()):
+            tau.append([])
+            for j in range(u0.__len__()):
+                tau[i].append(rho0 * K * D[i][j])
+                L += self.test[i] * tau[i][j].dx(j) * dx
         
         return L
 
