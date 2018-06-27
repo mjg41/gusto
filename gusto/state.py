@@ -230,9 +230,6 @@ class State(object):
             R = sqrt(inner(x, x))
             self.k = interpolate(x/R, mesh.coordinates.function_space())
             if dim == 2:
-                V = FunctionSpace(mesh, "CG", 3)
-                Omega = parameters.Omega
-                parameters.add_field("coriolis", V, 2*Omega*x[2]/R)
                 outward_normals = CellNormal(mesh)
                 self.perp = lambda u: cross(outward_normals, u)
         else:

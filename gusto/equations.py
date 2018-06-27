@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from collections import OrderedDict
 from firedrake import TestFunction, TrialFunction, FiniteElement, \
-    MixedFunctionSpace
+    MixedFunctionSpace, FunctionSpace, SpatialCoordinate, sqrt
 from gusto.diagnostics import Diagnostics
 from gusto.terms import *
 from gusto.transport_equation import *
@@ -30,9 +30,26 @@ class Equation(object, metaclass=ABCMeta):
 
 class AdvectionEquation(Equation):
 
-    def __init__(self, function_space, state, **kwargs):
+    def __init__(self, function_space, state,
+                 name=None, u_space=None, uexpr=None,
+                 **kwargs):
 
         super().__init__(function_space)
+        if name:
+            f = state.fields(name, function_space)
+            if hasattr(state, "diagnostics"):
+                state.diagnostics.register(name)
+            else:
+                state.diagnostics = Diagnostics(name)
+        if not u_space:
+            try:
+                u_space = state.spaces("HDiv")
+            except AttributeError:
+                raise ValueError("Must specify function space for advective velocity if state does not have the usual compatible finite element function spaces setup.")
+        state.fields('uadv', u_space)
+        if uexpr:
+            state.fields('uadv').project(uexpr)
+
         self.add_term(AdvectionTerm(state, **kwargs))
 
 
@@ -60,7 +77,7 @@ class Equations(object):
         state.fields(self.fieldlist, self.mixed_function_space)
 
         if hasattr(state, "diagnostics"):
-            state.diagnostic_fields += self.fieldlist
+            state.diagnostics.register(*self.fieldlist)
         else:
             state.diagnostics = Diagnostics(*self.fieldlist)
 
@@ -97,8 +114,12 @@ class ShallowWaterEquations(Equations):
         super().__init__(state, family, degree)
         self.ueqn = ShallowWaterMomentumEquation(self.u_space, state, u_opts)
         self.Deqn = ShallowWaterDepthEquation(self.D_space, state, D_opts)
+        V = FunctionSpace(state.mesh, "CG", 3)
+        x = SpatialCoordinate(state.mesh)
+        R = sqrt(inner(x, x))
+        Omega = state.parameters.Omega
+        state.parameters.add_field("coriolis", V, 2*Omega*x[2]/R)
         if topography_expr:
-            V = FunctionSpace(state.mesh, "CG", 3)
             state.parameters.add_field("topography", V, topography_expr)
 
     @abstractproperty
