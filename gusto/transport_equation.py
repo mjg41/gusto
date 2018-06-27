@@ -127,7 +127,8 @@ class AdvectionTerm(TransportTerm):
 
     def evaluate(self, test, q, fields):
 
-        uadv = fields("u")
+        uadv = fields("uadv")
+
         un = 0.5*(dot(uadv, self.n) + abs(dot(uadv, self.n)))
 
         if self.continuity:
@@ -346,7 +347,7 @@ class VectorInvariantTerm(TransportTerm):
 
     def evaluate(self, test, q, fields):
 
-        uadv = fields("u")
+        uadv = fields("uadv")
         Upwind = 0.5*(sign(dot(uadv, self.n))+1)
 
         if self.state.mesh.topological_dimension() == 3:
@@ -406,6 +407,6 @@ class EulerPoincareTerm(VectorInvariantTerm):
 
     def evaluate(self, test, q, fields):
         L = super().advection_term(q, fields)
-        uadv = fields("u")
+        uadv = fields("uadv")
         L -= 0.5*div(test)*inner(q, uadv)*dx
         return L
