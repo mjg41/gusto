@@ -9,6 +9,7 @@ from firedrake.parloops import par_loop, READ, INC
 from pyop2.profiling import timed_function, timed_region
 
 from gusto.configuration import DEBUG
+from gusto.state import FieldCreator
 from gusto import thermodynamics
 from abc import ABCMeta, abstractmethod, abstractproperty
 
@@ -30,10 +31,11 @@ class TimesteppingSolver(object, metaclass=ABCMeta):
          the default solver parameters with the solver_parameters passed in.
     """
 
-    def __init__(self, state, solver_parameters=None,
+    def __init__(self, state, equations, solver_parameters=None,
                  overwrite_solver_parameters=False):
 
         self.state = state
+        self.equations = equations
 
         if solver_parameters is not None:
             if not overwrite_solver_parameters:
@@ -742,9 +744,11 @@ class ShallowWaterSolver(TimesteppingSolver):
         beta = state.timestepping.dt*state.timestepping.alpha
 
         # Split up the rhs vector (symbolically)
-        u_in, D_in = split(state.xrhs)
+        state.xrhs = FieldCreator()
+        state.xrhs(self.equations.fieldlist, self.equations.mixed_function_space)
+        u_in, D_in = split(state.xrhs('xfields'))
 
-        W = state.W
+        W = self.equations.mixed_function_space
         w, phi = TestFunctions(W)
         u, D = TrialFunctions(W)
 
@@ -762,8 +766,10 @@ class ShallowWaterSolver(TimesteppingSolver):
         self.uD = Function(W)
 
         # Solver for u, D
+        state.dy = FieldCreator()
+        state.dy(self.equations.fieldlist, self.equations.mixed_function_space)
         uD_problem = LinearVariationalProblem(
-            aeqn, Leqn, self.state.dy)
+            aeqn, Leqn, state.dy('xfields'))
 
         self.uD_solver = LinearVariationalSolver(uD_problem,
                                                  solver_parameters=self.solver_parameters,

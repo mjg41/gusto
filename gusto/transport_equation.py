@@ -1,17 +1,15 @@
-from abc import ABCMeta, abstractmethod
-from firedrake import Function, TestFunction, TrialFunction, \
-    FacetNormal, \
-    dx, dot, grad, div, jump, avg, dS, dS_v, dS_h, inner, \
+from firedrake import dx, dot, grad, div, jump, avg, dS, dS_v, dS_h, inner, \
     ds, ds_v, ds_t, ds_b, \
     outer, sign, cross, CellNormal, sqrt, Constant, \
     curl, BrokenElement, FunctionSpace
 from gusto.configuration import DEBUG
+from gusto.terms import Term
 
 
-__all__ = ["LinearAdvection", "AdvectionEquation", "EmbeddedDGAdvection", "SUPGAdvection", "VectorInvariant", "EulerPoincare"]
+__all__ = ["LinearAdvectionTerm", "AdvectionTerm", "EmbeddedDGAdvection", "SUPGAdvection", "VectorInvariantTerm", "EulerPoincareTerm"]
 
 
-class TransportEquation(object, metaclass=ABCMeta):
+class TransportTerm(Term):
     """
     Base class for transport equations in Gusto.
 
@@ -29,40 +27,10 @@ class TransportEquation(object, metaclass=ABCMeta):
                         linear solver.
     """
 
-    def __init__(self, state, V, *, ibp="once", solver_params=None):
-        self.state = state
-        self.V = V
+    def __init__(self, state, *, ibp="once", solver_params=None):
+        super().__init__(state)
+
         self.ibp = ibp
-
-        # set up functions required for forms
-        self.ubar = Function(state.spaces("HDiv"))
-        self.test = TestFunction(V)
-        self.trial = TrialFunction(V)
-
-        # find out if we are CG
-        nvertex = V.ufl_domain().ufl_cell().num_vertices()
-        entity_dofs = V.finat_element.entity_dofs()
-        # If there are as many dofs on vertices as there are vertices,
-        # assume a continuous space.
-        try:
-            self.is_cg = sum(map(len, entity_dofs[0].values())) == nvertex
-        except KeyError:
-            self.is_cg = sum(map(len, entity_dofs[(0, 0)].values())) == nvertex
-
-        # DG, embedded DG and hybrid SUPG methods need surface measures,
-        # n and un
-        if self.is_cg:
-            self.dS = None
-            self.ds = None
-        else:
-            if V.extruded:
-                self.dS = (dS_h + dS_v)
-                self.ds = (ds_b + ds_t + ds_v)
-            else:
-                self.dS = dS
-                self.ds = ds
-            self.n = FacetNormal(state.mesh)
-            self.un = 0.5*(dot(self.ubar, self.n) + abs(dot(self.ubar, self.n)))
 
         if solver_params:
             self.solver_parameters = solver_params
@@ -75,15 +43,8 @@ class TransportEquation(object, metaclass=ABCMeta):
         if state.output.log_level == DEBUG:
             self.solver_parameters["ksp_monitor_true_residual"] = True
 
-    def mass_term(self, q):
-        return inner(self.test, q)*dx
 
-    @abstractmethod
-    def advection_term(self):
-        pass
-
-
-class LinearAdvection(TransportEquation):
+class LinearAdvectionTerm(TransportTerm):
     """
     Class for linear transport equation.
 
@@ -104,8 +65,8 @@ class LinearAdvection(TransportEquation):
                         linear solver.
     """
 
-    def __init__(self, state, V, qbar, ibp=None, equation_form="advective", solver_params=None):
-        super().__init__(state=state, V=V, ibp=ibp, solver_params=solver_params)
+    def __init__(self, state, qbar, ibp=None, equation_form="advective", solver_params=None):
+        super().__init__(state=state, ibp=ibp, solver_params=solver_params)
         if equation_form == "advective" or equation_form == "continuity":
             self.continuity = (equation_form == "continuity")
         else:
@@ -124,17 +85,17 @@ class LinearAdvection(TransportEquation):
                                   'pc_type': 'bjacobi',
                                   'sub_pc_type': 'ilu'}
 
-    def advection_term(self, q):
+    def evaluate(self, test, q, fields):
 
         if self.continuity:
-            L = (-dot(grad(self.test), self.ubar)*self.qbar*dx +
-                 jump(self.ubar*self.test, self.n)*avg(self.qbar)*self.dS)
+            L = (-dot(grad(test), self.ubar)*self.qbar*dx +
+                 jump(self.ubar*test, self.n)*avg(self.qbar)*self.dS)
         else:
-            L = self.test*dot(self.ubar, self.state.k)*dot(self.state.k, grad(self.qbar))*dx
+            L = test*dot(self.ubar, self.state.k)*dot(self.state.k, grad(self.qbar))*dx
         return L
 
 
-class AdvectionEquation(TransportEquation):
+class AdvectionTerm(TransportTerm):
     """
     Class for discretisation of the transport equation.
 
@@ -152,9 +113,9 @@ class AdvectionEquation(TransportEquation):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, V, *, ibp="once", equation_form="advective",
+    def __init__(self, state, *, ibp="once", equation_form="advective",
                  vector_manifold=False, solver_params=None, outflow=False):
-        super().__init__(state=state, V=V, ibp=ibp, solver_params=solver_params)
+        super().__init__(state=state, ibp=ibp, solver_params=solver_params)
         if equation_form == "advective" or equation_form == "continuity":
             self.continuity = (equation_form == "continuity")
         else:
@@ -164,43 +125,45 @@ class AdvectionEquation(TransportEquation):
         if outflow and ibp is None:
             raise ValueError("outflow is True and ibp is None are incompatible options")
 
-    def advection_term(self, q):
+    def evaluate(self, test, q, fields):
+
+        uadv = fields("u")
+        un = 0.5*(dot(uadv, self.n) + abs(dot(uadv, self.n)))
 
         if self.continuity:
             if self.ibp == "once":
-                L = -inner(grad(self.test), outer(q, self.ubar))*dx
+                L = -inner(grad(test), outer(q, uadv))*dx
             else:
-                L = inner(self.test, div(outer(q, self.ubar)))*dx
+                L = inner(test, div(outer(q, uadv)))*dx
         else:
             if self.ibp == "once":
-                L = -inner(div(outer(self.test, self.ubar)), q)*dx
+                L = -inner(div(outer(test, uadv)), q)*dx
             else:
-                L = inner(outer(self.test, self.ubar), grad(q))*dx
+                L = inner(outer(test, uadv), grad(q))*dx
 
-        if self.dS is not None and self.ibp is not None:
-            L += dot(jump(self.test), (self.un('+')*q('+')
-                                       - self.un('-')*q('-')))*self.dS
+        #if self.dS is not None and self.ibp is not None:
+        if self.ibp is not None:
+            L += dot(jump(test), (un('+')*q('+')
+                                  - un('-')*q('-')))*dS
             if self.ibp == "twice":
-                L -= (inner(self.test('+'),
-                            dot(self.ubar('+'), self.n('+'))*q('+'))
-                      + inner(self.test('-'),
-                              dot(self.ubar('-'), self.n('-'))*q('-')))*self.dS
+                L -= (inner(test('+'),
+                            dot(uadv('+'), self.n('+'))*q('+'))
+                      + inner(test('-'),
+                              dot(uadv('-'), self.n('-'))*q('-')))*dS
 
         if self.outflow:
-            L += self.test*self.un*q*self.ds
+            L += test*un*q*self.ds
 
         if self.vector_manifold:
-            un = self.un
-            w = self.test
+            w = test
             u = q
             n = self.n
-            dS = self.dS
             L += un('+')*inner(w('-'), n('+')+n('-'))*inner(u('+'), n('+'))*dS
             L += un('-')*inner(w('+'), n('+')+n('-'))*inner(u('-'), n('-'))*dS
         return L
 
 
-class EmbeddedDGAdvection(AdvectionEquation):
+class EmbeddedDGAdvection(AdvectionTerm):
     """
     Class for the transport equation, using an embedded DG advection scheme.
 
@@ -230,7 +193,7 @@ class EmbeddedDGAdvection(AdvectionEquation):
                            will not be used.
     """
 
-    def __init__(self, state, V, ibp="once", equation_form="advective", vector_manifold=False, Vdg=None, solver_params=None, recovered_spaces=None, outflow=False):
+    def __init__(self, state, ibp="once", equation_form="advective", vector_manifold=False, Vdg=None, solver_params=None, recovered_spaces=None, outflow=False):
 
         # give equation the property V0, the space that the function should live in
         # in the absence of Vdg, this is used to set up the space for advection
@@ -266,7 +229,7 @@ class EmbeddedDGAdvection(AdvectionEquation):
                          outflow=outflow)
 
 
-class SUPGAdvection(AdvectionEquation):
+class SUPGAdvection(AdvectionTerm):
     """
     Class for the transport equation.
 
@@ -296,7 +259,7 @@ class SUPGAdvection(AdvectionEquation):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, V, ibp="twice", equation_form="advective", supg_params=None, solver_params=None, outflow=False):
+    def __init__(self, state, ibp="twice", equation_form="advective", supg_params=None, solver_params=None, outflow=False):
 
         if not solver_params:
             # SUPG method leads to asymmetric matrix (since the test function
@@ -359,11 +322,11 @@ class SUPGAdvection(AdvectionEquation):
                 taus[2] = 0.0
 
             tau = Constant(((taus[0], 0., 0.), (0., taus[1], 0.), (0., 0., taus[2])))
-        dtest = dot(dot(self.ubar, tau), grad(self.test))
-        self.test += dtest
+        dtest = dot(dot(self.ubar, tau), grad(test))
+        test += dtest
 
 
-class VectorInvariant(TransportEquation):
+class VectorInvariantTerm(TransportTerm):
     """
     Class defining the vector invariant form of the vector advection equation.
 
@@ -374,27 +337,17 @@ class VectorInvariant(TransportEquation):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, V, *, ibp="once", solver_params=None):
-        super().__init__(state=state, V=V, ibp=ibp,
+    def __init__(self, state, *, ibp="once", solver_params=None):
+        super().__init__(state=state, ibp=ibp,
                          solver_params=solver_params)
 
-        self.Upwind = 0.5*(sign(dot(self.ubar, self.n))+1)
+        if state.mesh.topological_dimension() == 3 and ibp == "twice":
+            raise NotImplementedError("ibp=twice is not implemented for 3d problems")
 
-        if self.state.mesh.topological_dimension() == 2:
-            self.perp = state.perp
-            if state.on_sphere:
-                outward_normals = CellNormal(state.mesh)
-                self.perp_u_upwind = lambda q: self.Upwind('+')*cross(outward_normals('+'), q('+')) + self.Upwind('-')*cross(outward_normals('-'), q('-'))
-            else:
-                self.perp_u_upwind = lambda q: self.Upwind('+')*state.perp(q('+')) + self.Upwind('-')*state.perp(q('-'))
-            self.gradperp = lambda u: state.perp(grad(u))
-        elif self.state.mesh.topological_dimension() == 3:
-            if self.ibp == "twice":
-                raise NotImplementedError("ibp=twice is not implemented for 3d problems")
-        else:
-            raise RuntimeError("topological mesh dimension must be 2 or 3")
+    def evaluate(self, test, q, fields):
 
-    def advection_term(self, q):
+        uadv = fields("u")
+        Upwind = 0.5*(sign(dot(uadv, self.n))+1)
 
         if self.state.mesh.topological_dimension() == 3:
             # <w,curl(u) cross ubar + grad( u.ubar)>
@@ -405,34 +358,41 @@ class VectorInvariant(TransportEquation):
             both = lambda u: 2*avg(u)
 
             L = (
-                inner(q, curl(cross(self.ubar, self.test)))*dx
+                inner(q, curl(cross(uadv, test)))*dx
                 - inner(both(self.Upwind*q),
-                        both(cross(self.n, cross(self.ubar, self.test))))*self.dS
+                        both(cross(self.n, cross(uadv, test))))*self.dS
             )
 
         else:
+            perp = self.state.perp
+            if self.state.on_sphere:
+                outward_normals = CellNormal(self.state.mesh)
+                perp_u_upwind = lambda q: Upwind('+')*cross(outward_normals('+'), q('+')) + Upwind('-')*cross(outward_normals('-'), q('-'))
+            else:
+                perp_u_upwind = lambda q: Upwind('+')*perp(q('+')) + Upwind('-')*perp(q('-'))
+            gradperp = lambda u: perp(grad(u))
 
             if self.ibp == "once":
                 L = (
-                    -inner(self.gradperp(inner(self.test, self.perp(self.ubar))), q)*dx
-                    - inner(jump(inner(self.test, self.perp(self.ubar)), self.n),
-                            self.perp_u_upwind(q))*self.dS
+                    -inner(gradperp(inner(test, perp(uadv))), q)*dx
+                    - inner(jump(inner(test, perp(uadv)), self.n),
+                            perp_u_upwind(q))*dS
                 )
             else:
                 L = (
-                    (-inner(self.test, div(self.perp(q))*self.perp(self.ubar)))*dx
-                    - inner(jump(inner(self.test, self.perp(self.ubar)), self.n),
-                            self.perp_u_upwind(q))*self.dS
-                    + jump(inner(self.test,
-                                 self.perp(self.ubar))*self.perp(q), self.n)*self.dS
+                    (-inner(test, div(perp(q))*self.perp(uadv)))*dx
+                    - inner(jump(inner(test, perp(uadv)), self.n),
+                            perp_u_upwind(q))*self.dS
+                    + jump(inner(test,
+                                 perp(uadv))*perp(q), self.n)*self.dS
                 )
 
-        L -= 0.5*div(self.test)*inner(q, self.ubar)*dx
+        L -= 0.5*div(test)*inner(q, uadv)*dx
 
         return L
 
 
-class EulerPoincare(VectorInvariant):
+class EulerPoincareTerm(VectorInvariantTerm):
     """
     Class defining the Euler-Poincare form of the vector advection equation.
 
@@ -444,7 +404,8 @@ class EulerPoincare(VectorInvariant):
                         linear solver.
     """
 
-    def advection_term(self, q):
-        L = super().advection_term(q)
-        L -= 0.5*div(self.test)*inner(q, self.ubar)*dx
+    def evaluate(self, test, q, fields):
+        L = super().advection_term(q, fields)
+        uadv = fields("u")
+        L -= 0.5*div(test)*inner(q, uadv)*dx
         return L

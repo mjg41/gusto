@@ -1,64 +1,39 @@
-from abc import ABCMeta, abstractmethod
 from firedrake import Function, split, TrialFunction, TestFunction, \
     FacetNormal, inner, dx, cross, div, jump, avg, dS_v, \
-    DirichletBC, LinearVariationalProblem, LinearVariationalSolver, \
-    dot, dS, Constant, as_vector, SpatialCoordinate
-from gusto.configuration import logger, DEBUG
+    LinearVariationalProblem, LinearVariationalSolver, \
+    Constant, as_vector, SpatialCoordinate
+from gusto.configuration import DEBUG
+from gusto.state import FieldCreator
+from gusto.transport_equation import TransportTerm
 from gusto import thermodynamics
 
 
-__all__ = ["CompressibleForcing", "IncompressibleForcing", "EadyForcing", "CompressibleEadyForcing", "ShallowWaterForcing"]
+__all__ = ["CompressibleForcing", "IncompressibleForcing", "EadyForcing", "CompressibleEadyForcing"]
 
 
-class Forcing(object, metaclass=ABCMeta):
+class Forcing(object):
     """
     Base class for forcing terms for Gusto.
 
     :arg state: x :class:`.State` object.
-    :arg euler_poincare: if True then the momentum equation is in Euler
-    Poincare form and we need to add 0.5*grad(u^2) to the forcing term.
-    If False then this term is not added.
-    :arg linear: if True then we are solving a linear equation so nonlinear
-    terms (namely the Euler Poincare term) should not be added.
-    :arg extra_terms: extra terms to add to the u component of the forcing
-    term - these will be multiplied by the appropriate test function.
     """
 
-    def __init__(self, state, euler_poincare=True, linear=False, extra_terms=None, moisture=None):
+    def __init__(self, state, equations):
         self.state = state
-        if linear:
-            self.euler_poincare = False
-            logger.warning('Setting euler_poincare to False because you have set linear=True')
-        else:
-            self.euler_poincare = euler_poincare
+        self.fieldlist = equations.fieldlist
 
-        # set up functions
-        self.Vu = state.spaces("HDiv")
-        # this is the function that the forcing term is applied to
-        self.x0 = Function(state.W)
-        self.test = TestFunction(self.Vu)
-        self.trial = TrialFunction(self.Vu)
+        self.x0 = FieldCreator()
+        self.x0(equations.fieldlist, equations.mixed_function_space)
+
         # this is the function that contains the result of solving
         # <test, trial> = <test, F(x0)>, where F is the forcing term
-        self.uF = Function(self.Vu)
+        self.xF = FieldCreator()
+        self.solvers = {"explicit": {}, "implicit": {}}
 
-        # find out which terms we need
-        self.extruded = self.Vu.extruded
-        self.coriolis = state.Omega is not None or hasattr(state.fields, "coriolis")
-        self.sponge = state.mu is not None
-        self.hydrostatic = state.hydrostatic
-        self.topography = hasattr(state.fields, "topography")
-        self.extra_terms = extra_terms
-        self.moisture = moisture
-
-        # some constants to use for scaling terms
-        self.scaling = Constant(1.)
-        self.impl = Constant(1.)
-
-        self._build_forcing_solvers()
-
-    def mass_term(self):
-        return inner(self.test, self.trial)*dx
+        for field in equations.fieldlist:
+            if not all([isinstance(term, TransportTerm) for name, term in equations(field).terms.items()]):
+                self.xF(field, state.fields(field).function_space())
+                self._build_forcing_solver(field, equations(field))
 
     def coriolis_term(self):
         u0 = split(self.x0)[0]
@@ -75,10 +50,6 @@ class Forcing(object, metaclass=ABCMeta):
     def hydrostatic_term(self):
         u0 = split(self.x0)[0]
         return inner(u0, self.state.k)*inner(self.test, self.state.k)*dx
-
-    @abstractmethod
-    def pressure_gradient_term(self):
-        pass
 
     def forcing_term(self):
         L = self.pressure_gradient_term()
@@ -102,29 +73,40 @@ class Forcing(object, metaclass=ABCMeta):
             L += (2*self.impl-1)*self.hydrostatic_term()
         return L
 
-    def _build_forcing_solvers(self):
-        a = self.mass_term()
-        L = self.forcing_term()
-        if self.Vu.extruded:
-            bcs = [DirichletBC(self.Vu, 0.0, "bottom"),
-                   DirichletBC(self.Vu, 0.0, "top")]
-        else:
-            bcs = None
+    def _build_forcing_solver(self, field, equation):
+        a = equation.mass_term(equation.trial)
+        L_explicit = 0.
+        L_implicit = 0.
+        dt = self.state.timestepping.dt
+        for name, term in equation.terms.items():
+            if not isinstance(term, TransportTerm):
+                L_explicit += dt * term.off_centering * term(equation.test, self.x0(field), self.x0)
+                L_implicit += dt * (1. - term.off_centering) * term(equation.test, self.x0(field), self.x0)
 
-        u_forcing_problem = LinearVariationalProblem(
-            a, L, self.uF, bcs=bcs
+        explicit_forcing_problem = LinearVariationalProblem(
+            a, L_explicit, self.xF(field), bcs=equation.bcs
+        )
+
+        implicit_forcing_problem = LinearVariationalProblem(
+            a, L_implicit, self.xF(field), bcs=equation.bcs
         )
 
         solver_parameters = {}
         if self.state.output.log_level == DEBUG:
             solver_parameters["ksp_monitor_true_residual"] = True
-        self.u_forcing_solver = LinearVariationalSolver(
-            u_forcing_problem,
+
+        self.solvers["explicit"][field] = LinearVariationalSolver(
+            explicit_forcing_problem,
             solver_parameters=solver_parameters,
-            options_prefix="UForcingSolver"
+            options_prefix=field+"ExplicitForcingSolver"
+        )
+        self.solvers["implicit"][field] = LinearVariationalSolver(
+            implicit_forcing_problem,
+            solver_parameters=solver_parameters,
+            options_prefix=field+"ImplicitForcingSolver"
         )
 
-    def apply(self, scaling, x_in, x_nl, x_out, **kwargs):
+    def apply(self, x_in, x_nl, x_out, label):
         """
         Function takes x as input, computes F(x_nl) and returns
         x_out = x + scale*F(x_nl)
@@ -135,17 +117,13 @@ class Forcing(object, metaclass=ABCMeta):
         :arg x_out: :class:`.Function` object
         :arg implicit: forcing stage for sponge and hydrostatic terms, if present
         """
-        self.scaling.assign(scaling)
-        self.x0.assign(x_nl)
-        implicit = kwargs.get("implicit")
-        if implicit is not None:
-            self.impl.assign(int(implicit))
-        self.u_forcing_solver.solve()  # places forcing in self.uF
+        self.x0('xfields').assign(x_nl('xfields'))
+        x_out('xfields').assign(x_in('xfields'))
 
-        uF = x_out.split()[0]
-
-        x_out.assign(x_in)
-        uF += self.uF
+        for field, solver in self.solvers[label].items():
+            solver.solve()
+            x = x_out(field)
+            x += self.xF(field)
 
 
 class CompressibleForcing(Forcing):
@@ -396,35 +374,3 @@ class CompressibleEadyForcing(CompressibleForcing):
         self.theta_forcing_solver.solve()  # places forcing in self.thetaF
         _, _, theta_out = x_out.split()
         theta_out += self.thetaF
-
-
-class ShallowWaterForcing(Forcing):
-
-    def coriolis_term(self):
-
-        f = self.state.fields("coriolis")
-        u0, _ = split(self.x0)
-        L = -f*inner(self.test, self.state.perp(u0))*dx
-        return L
-
-    def pressure_gradient_term(self):
-
-        g = self.state.parameters.g
-        u0, D0 = split(self.x0)
-        n = FacetNormal(self.state.mesh)
-        un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
-
-        L = g*(div(self.test)*D0*dx
-               - inner(jump(self.test, n), un('+')*D0('+')
-                       - un('-')*D0('-'))*dS)
-        return L
-
-    def topography_term(self):
-        g = self.state.parameters.g
-        u0, _ = split(self.x0)
-        b = self.state.fields("topography")
-        n = FacetNormal(self.state.mesh)
-        un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
-
-        L = g*div(self.test)*b*dx - g*inner(jump(self.test, n), un('+')*b('+') - un('-')*b('-'))*dS
-        return L

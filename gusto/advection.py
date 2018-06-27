@@ -3,7 +3,8 @@ from firedrake import Function, LinearVariationalProblem, \
     LinearVariationalSolver, Projector, Interpolator
 from firedrake.utils import cached_property
 from gusto.configuration import DEBUG
-from gusto.transport_equation import EmbeddedDGAdvection
+from gusto.state import FieldCreator
+from gusto.transport_equation import TransportTerm, EmbeddedDGAdvection
 from firedrake import expression, function
 from firedrake.parloops import par_loop, READ, INC
 import ufl
@@ -63,13 +64,18 @@ class Advection(object, metaclass=ABCMeta):
             self.state = state
             self.field = field
             self.equation = equation
-            # get ubar from the equation class
-            self.ubar = self.equation.ubar
+
+            self.fields = FieldCreator()
+            self.fields("u", state.spaces("HDiv"))
+            self.fields("D", state.spaces("DG"))
+
             self.dt = self.state.timestepping.dt
 
             # get default solver options if none passed in
             if solver_parameters is None:
-                self.solver_parameters = equation.solver_parameters
+                self.solver_parameters = {'ksp_type': 'cg',
+                                          'pc_type': 'bjacobi',
+                                          'sub_pc_type': 'ilu'}
             else:
                 self.solver_parameters = solver_parameters
                 if state.output.log_level == DEBUG:
@@ -130,12 +136,17 @@ class Advection(object, metaclass=ABCMeta):
 
     @abstractproperty
     def rhs(self):
-        return self.equation.mass_term(self.q1) - self.dt*self.equation.advection_term(self.q1)
+        L = self.equation.mass_term(self.q1)
+        for name, term in self.equation.terms.items():
+            if isinstance(term, TransportTerm):
+                L -= self.dt*self.equation(self.q1, self.fields)
+        return L
 
     def update_ubar(self, xn, xnp1, alpha):
-        un = xn.split()[0]
-        unp1 = xnp1.split()[0]
-        self.ubar.assign(un + alpha*(unp1-un))
+        un = xn('u')
+        unp1 = xnp1('u')
+        self.fields("u").assign(un + alpha*(unp1-un))
+        self.fields("D").assign(xn("D"))
 
     @cached_property
     def solver(self):
@@ -318,14 +329,19 @@ class ThetaMethod(Advection):
 
     @cached_property
     def lhs(self):
-        eqn = self.equation
-        trial = eqn.trial
-        return eqn.mass_term(trial) + self.theta*self.dt*eqn.advection_term(self.state.h_project(trial))
+        L = self.equation.mass_term(self.equation.trial)
+        for name, term in self.equation.terms.items():
+            if isinstance(term, TransportTerm):
+                L += self.theta*self.dt*term(self.equation.test, self.equation.trial, self.fields)
+        return L
 
     @cached_property
     def rhs(self):
-        eqn = self.equation
-        return eqn.mass_term(self.q1) - (1.-self.theta)*self.dt*eqn.advection_term(self.state.h_project(self.q1))
+        L = self.equation.mass_term(self.q1)
+        for name, term in self.equation.terms.items():
+            if isinstance(term, TransportTerm):
+                L -= (1. - self.theta)*self.dt*term(self.equation.test, self.q1, self.fields)
+        return L
 
     def apply(self, x_in, x_out):
         self.q1.assign(x_in)

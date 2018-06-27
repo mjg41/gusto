@@ -29,26 +29,31 @@ class SpaceCreator(object):
 
 class FieldCreator(object):
 
-    def __init__(self, fieldlist=None, xn=None, dumplist=None, pickup=True):
+    def __init__(self):
         self.fields = []
-        if fieldlist is not None:
-            for name, func in zip(fieldlist, xn.split()):
-                setattr(self, name, func)
-                func.dump = name in dumplist
-                func.pickup = pickup
-                func.rename(name)
-                self.fields.append(func)
 
     def __call__(self, name, space=None, dump=True, pickup=True):
-        try:
-            return getattr(self, name)
-        except AttributeError:
-            value = Function(space, name=name)
-            setattr(self, name, value)
-            value.dump = dump
-            value.pickup = pickup
-            self.fields.append(value)
-            return value
+
+        if isinstance(name, str):
+            try:
+                return getattr(self, name)
+            except AttributeError:
+                value = Function(space, name=name)
+                setattr(self, name, value)
+                value.dump = dump
+                value.pickup = pickup
+                self.fields.append(value)
+                return value
+        else:
+            assert len(space) > 1
+            xn = Function(space)
+            setattr(self, 'xfields', xn)
+            for fname, func in zip(name, xn.split()):
+                setattr(self, fname, func)
+                func.dump = dump
+                func.pickup = pickup
+                func.rename(fname)
+                self.fields.append(func)
 
     def __iter__(self):
         return iter(self.fields)
@@ -178,24 +183,18 @@ class State(object):
     :arg output: class containing output parameters
     :arg parameters: class containing physical parameters
     :arg diagnostics: class containing diagnostic methods
-    :arg fieldlist: list of prognostic field names
     :arg diagnostic_fields: list of diagnostic field classes
     """
 
-    def __init__(self, mesh, vertical_degree=None, horizontal_degree=1,
-                 family="RT",
+    def __init__(self, mesh,
                  Coriolis=None, sponge_function=None,
                  hydrostatic=None,
                  timestepping=None,
                  output=None,
                  parameters=None,
                  diagnostics=None,
-                 fieldlist=None,
                  diagnostic_fields=None):
 
-        self.family = family
-        self.vertical_degree = vertical_degree
-        self.horizontal_degree = horizontal_degree
         self.Omega = Coriolis
         self.mu = sponge_function
         self.hydrostatic = hydrostatic
@@ -205,14 +204,7 @@ class State(object):
         else:
             self.output = output
         self.parameters = parameters
-        if fieldlist is None:
-            raise RuntimeError("You must provide a fieldlist containing the names of the prognostic fields")
-        else:
-            self.fieldlist = fieldlist
-        if diagnostics is not None:
-            self.diagnostics = diagnostics
-        else:
-            self.diagnostics = Diagnostics(*fieldlist)
+
         if diagnostic_fields is not None:
             self.diagnostic_fields = diagnostic_fields
         else:
@@ -221,14 +213,8 @@ class State(object):
         # The mesh
         self.mesh = mesh
 
-        # Build the spaces
-        self._build_spaces(mesh, vertical_degree, horizontal_degree, family)
-
-        # Allocate state
-        self._allocate_state()
-        if self.output.dumplist is None:
-            self.output.dumplist = fieldlist
-        self.fields = FieldCreator(fieldlist, self.xn, self.output.dumplist)
+        self.spaces = SpaceCreator()
+        self.fields = FieldCreator()
 
         self.dumpfile = None
 
@@ -432,7 +418,6 @@ class State(object):
         mixed function space self.W = (V2,V3,Vt)
         """
 
-        self.spaces = SpaceCreator()
         if vertical_degree is not None:
             # horizontal base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
@@ -457,15 +442,6 @@ class State(object):
             self.Vv = self.spaces("Vv", mesh, V2v_elt)
 
             self.W = MixedFunctionSpace((V0, V1, V2))
-
-        else:
-            cell = mesh.ufl_cell().cellname()
-            V1_elt = FiniteElement(family, cell, horizontal_degree+1)
-
-            V0 = self.spaces("HDiv", mesh, V1_elt)
-            V1 = self.spaces("DG", mesh, "DG", horizontal_degree)
-
-            self.W = MixedFunctionSpace((V0, V1))
 
     def _allocate_state(self):
         """
