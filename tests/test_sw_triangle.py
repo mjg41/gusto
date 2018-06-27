@@ -55,11 +55,6 @@ def setup_sw(dirname, euler_poincare):
     Omega = parameters.Omega
     g = parameters.g
     Dexpr = H - ((R * Omega * u_max + u_max*u_max/2.0)*(x[2]*x[2]/(R*R)))/g
-    # Coriolis
-    fexpr = 2*Omega*x[2]/R
-    V = FunctionSpace(mesh, "CG", 1)
-    f = state.fields("coriolis", Function(V))
-    f.interpolate(fexpr)  # Coriolis frequency (1/s)
 
     u0.project(uexpr)
     D0.interpolate(Dexpr)
@@ -75,6 +70,7 @@ def setup_sw(dirname, euler_poincare):
     # build time stepper
     stepper = CrankNicolson(state, eqns, advected_fields, linear_solver)
 
+    f = parameters.coriolis
     vspace = FunctionSpace(state.mesh, "CG", 3)
     vexpr = (2*u_max/R)*x[2]/R
     vrel_analytical = state.fields("AnalyticalRelativeVorticity", vspace)

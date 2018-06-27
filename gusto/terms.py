@@ -30,7 +30,7 @@ class ShallowWaterPressureGradientTerm(Term):
 class ShallowWaterCoriolisTerm(Term):
 
     def evaluate(self, test, q, fields):
-        f = self.state.fields("coriolis")
+        f = self.parameters.coriolis
         u = fields("u")
         return -f*inner(test, self.state.perp(u))*dx
 
@@ -39,5 +39,5 @@ class ShallowWaterTopographyTerm(Term):
 
     def evaluate(self, test, q, fields):
         g = self.parameters.g
-        b = self.state.fields("topography")
+        b = self.parameters("topography")
         return g*div(test)*b*dx

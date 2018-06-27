@@ -3,7 +3,7 @@ Some simple tools for making model configuration nicer.
 """
 import logging
 from logging import DEBUG, INFO, WARNING
-from firedrake import sqrt
+from firedrake import sqrt, Function
 
 
 __all__ = ["WARNING", "INFO", "DEBUG", "TimesteppingParameters", "OutputParameters", "CompressibleParameters", "ShallowWaterParameters", "EadyParameters", "CompressibleEadyParameters", "logger"]
@@ -34,6 +34,10 @@ class Configuration(object):
         if not hasattr(self, name):
             raise AttributeError("'%s' object has no attribute '%s'" % (type(self).__name__, name))
         object.__setattr__(self, name, value)
+
+    def add_field(self, name, function_space, expression):
+        fn = Function(function_space).interpolate(expression)
+        self.__setattr__(name, fn)    
 
 
 class TimesteppingParameters(Configuration):
@@ -106,6 +110,8 @@ class ShallowWaterParameters(Configuration):
     g = 9.80616
     Omega = 7.292e-5  # rotation rate
     H = None  # mean depth
+    coriolis = None
+    topography = None
 
 
 class EadyParameters(Configuration):

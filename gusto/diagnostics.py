@@ -208,7 +208,7 @@ class ShallowWaterPotentialEnstrophy(DiagnosticField):
         elif self.base_field_name == "RelativeVorticity":
             zeta = state.fields("RelativeVorticity")
             D = state.fields("D")
-            f = state.fields("coriolis")
+            f = state.parameters.coriolis
             enstrophy = 0.5*(zeta + f)**2/D
         elif self.base_field_name == "AbsoluteVorticity":
             zeta_abs = state.fields("AbsoluteVorticity")
@@ -489,7 +489,7 @@ class Vorticity(DiagnosticField):
                 raise NotImplementedError("The vorticity diagnostics have only been implemented for 2D spherical geometries.")
 
             if vorticity_type != "relative":
-                f = state.fields("coriolis")
+                f = state.parameters.coriolis
                 L += gamma*f*dx
 
             problem = LinearVariationalProblem(a, L, self.field)

@@ -92,10 +92,14 @@ class ShallowWaterEquations(Equations):
 
     fieldlist = ['u', 'D']
 
-    def __init__(self, state, family, degree, u_opts=None, D_opts=None):
+    def __init__(self, state, family, degree, u_opts=None, D_opts=None,
+                 topography_expr = None):
         super().__init__(state, family, degree)
         self.ueqn = ShallowWaterMomentumEquation(self.u_space, state, u_opts)
         self.Deqn = ShallowWaterDepthEquation(self.D_space, state, D_opts)
+        if topography_expr:
+            V = FunctionSpace(state.mesh, "CG", 3)
+            state.parameters.add_field("topography", V, topography_expr)
 
     @abstractproperty
     def equation_list(self):
