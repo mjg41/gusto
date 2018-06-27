@@ -37,7 +37,7 @@ class Configuration(object):
 
     def add_field(self, name, function_space, expression):
         fn = Function(function_space).interpolate(expression)
-        self.__setattr__(name, fn)    
+        self.__setattr__(name, fn)
 
 
 class TimesteppingParameters(Configuration):

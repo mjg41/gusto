@@ -2,8 +2,7 @@ from os import path
 import itertools
 from netCDF4 import Dataset
 import time
-from gusto.diagnostics import Diagnostics, Perturbation, \
-    SteadyStateError
+from gusto.diagnostics import Perturbation, SteadyStateError
 from firedrake import FiniteElement, TensorProductElement, HDiv, \
     FunctionSpace, MixedFunctionSpace, VectorFunctionSpace, \
     interval, Function, Mesh, functionspaceimpl,\

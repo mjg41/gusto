@@ -135,7 +135,6 @@ class BaseSemiImplicitTimestepper(BaseTimestepper):
             for physics in self.physics_list:
                 physics.apply()
 
-
     @abstractmethod
     def semi_implicit_step(self):
         """
