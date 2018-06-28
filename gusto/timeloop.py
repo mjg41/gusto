@@ -1,7 +1,6 @@
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod
 from pyop2.profiling import timed_stage
 from gusto.configuration import logger
-from gusto.equations import AdvectionEquation
 from gusto.forcing import Forcing
 from gusto.state import FieldCreator
 from firedrake import DirichletBC
@@ -134,7 +133,7 @@ class BaseSemiImplicitTimestepper(BaseTimestepper):
     def passive_advection(self):
         """list of fields that are passively advected (and possibly diffused)"""
         return [(name, scheme) for name, scheme in
-                self.advected_fields if not name in self.equations.fieldlist]
+                self.advected_fields if name not in self.equations.fieldlist]
 
     @abstractmethod
     def timestep(self, state):

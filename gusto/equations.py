@@ -36,7 +36,7 @@ class AdvectionEquation(Equation):
 
         super().__init__(function_space)
         if name:
-            f = state.fields(name, function_space)
+            state.fields(name, function_space)
             if hasattr(state, "diagnostics"):
                 state.diagnostics.register(name)
             else:

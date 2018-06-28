@@ -3,7 +3,6 @@ from firedrake import Function, LinearVariationalProblem, \
     LinearVariationalSolver, Projector, Interpolator
 from firedrake.utils import cached_property
 from gusto.configuration import DEBUG
-from gusto.state import FieldCreator
 from gusto.transport_equation import TransportTerm, EmbeddedDGAdvection
 from firedrake import expression, function
 from firedrake.parloops import par_loop, READ, INC
