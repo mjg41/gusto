@@ -105,10 +105,10 @@ def error(geometry):
 
 
 def pytest_addoption(parser):
-    parser.addoption("--geometry", action="store", default="slice")
-    parser.addoption("--ibp", action="store", default="once")
-    parser.addoption("--equation_form", action="store", default="advective")
-    parser.addoption("--scheme", action="store", default="ssprk3")
+    parser.addoption("--geometry", action="store")
+    parser.addoption("--ibp", action="store")
+    parser.addoption("--equation_form", action="store")
+    parser.addoption("--scheme", action="store")
 
 
 def pytest_generate_tests(metafunc):
@@ -117,12 +117,20 @@ def pytest_generate_tests(metafunc):
     geometry = metafunc.config.option.geometry
     if 'geometry' in metafunc.fixturenames and geometry is not None:
         metafunc.parametrize("geometry", [geometry])
+    else:
+        metafunc.parametrize("geometry", ["sphere", "slice"])
     ibp = metafunc.config.option.ibp
     if 'ibp' in metafunc.fixturenames and ibp is not None:
         metafunc.parametrize("ibp", [ibp])
+    else:
+        metafunc.parametrize("ibp", [["once", "twice"]])
     equation_form = metafunc.config.option.equation_form
     if 'equation_form' in metafunc.fixturenames and equation_form is not None:
         metafunc.parametrize("equation_form", [equation_form])
+    else:
+        metafunc.parametrize("equation_form", [["advective", "continuity"]])
     scheme = metafunc.config.option.scheme
     if 'scheme' in metafunc.fixturenames and scheme is not None:
         metafunc.parametrize("scheme", [scheme])
+    else:
+        metafunc.parametrize("scheme", [["ssprk3", "im"]])

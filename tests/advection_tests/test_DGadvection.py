@@ -24,6 +24,7 @@ def test_advection_dg(geometry, ibp, equation_form, scheme, error, state, uexpr,
     This tests the DG advection discretisation for both scalar and vector
     fields in 2D slice and spherical geometry.
     """
+
     # set up function spaces
     fspace = FunctionSpace(state.mesh, "DG", 1)
     vspace = VectorFunctionSpace(state.mesh, "DG", 1)
@@ -46,33 +47,34 @@ def test_advection_dg(geometry, ibp, equation_form, scheme, error, state, uexpr,
     s = "_"
     advected_fields = []
 
-    # setup scalar fields
+    # setup fields
     scalar_fields = []
-    # create functions and initialise them
-    fname = s.join(("f", ibp, equation_form, scheme))
-    scalar_fields.append(fname)
-    eqn = AdvectionEquation(fspace, state, fname, u_space, uexpr,
-                            ibp=ibp, equation_form=equation_form)
-    f = state.fields(fname)
-    f.interpolate(f_init)
-    if scheme == "ssprk3":
-        advected_fields.append((fname, SSPRK3(state, f, eqn)))
-    elif scheme == "im":
-        advected_fields.append((fname, ThetaMethod(state, f, eqn)))
-
-    # setup vector fields
     vector_fields = []
+
     # create functions and initialise them
-    fname = s.join(("vecf", ibp, equation_form, scheme))
-    vector_fields.append(fname)
-    eqn = AdvectionEquation(vspace, state, fname, u_space, uexpr,
-                            ibp=ibp, equation_form=equation_form)
-    f = state.fields(fname)
-    f.interpolate(vec_expr)
-    if scheme == "ssprk3":
-        advected_fields.append((fname, SSPRK3(state, f, eqn)))
-    elif scheme == "im":
-        advected_fields.append((fname, ThetaMethod(state, f, eqn)))
+    for ibp_opt in ibp:
+        for eqn_opt in equation_form:
+            for scheme_opt in scheme:
+                fname = s.join(("f", ibp_opt, eqn_opt, scheme_opt))
+                scalar_fields.append(fname)
+                eqn = AdvectionEquation(fspace, state, fname, u_space, uexpr,
+                                        ibp=ibp_opt, equation_form=eqn_opt)
+                f = state.fields(fname)
+                f.interpolate(f_init)
+
+                vname = s.join(("vecf", ibp_opt, eqn_opt, scheme_opt))
+                vector_fields.append(vname)
+                veqn = AdvectionEquation(vspace, state, vname, u_space, uexpr,
+                                         ibp=ibp_opt, equation_form=eqn_opt)
+                v = state.fields(vname)
+                v.interpolate(vec_expr)
+
+                if scheme_opt == "ssprk3":
+                    advected_fields.append((fname, SSPRK3(state, f, eqn)))
+                    advected_fields.append((vname, SSPRK3(state, v, veqn)))
+                elif scheme_opt == "im":
+                    advected_fields.append((fname, ThetaMethod(state, f, eqn)))
+                    advected_fields.append((vname, ThetaMethod(state, v, veqn)))
 
     end_fields = run(state, advected_fields, tmax)
 
