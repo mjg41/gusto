@@ -5,6 +5,8 @@ lint:
 	@python3 -m flake8 examples
 	@echo "    Linting gusto tests"
 	@python3 -m flake8 tests
+	@echo "    Linting gusto advection tests"
+	@python3 -m flake8 tests/advection_tests
 	@echo "    Linting gusto plotting scripts"
 	@python3 -m flake8 plotting
 
