@@ -1,7 +1,7 @@
 import pytest
 from firedrake import IcosahedralSphereMesh, PeriodicIntervalMesh, \
     ExtrudedMesh, SpatialCoordinate, \
-    as_vector, VectorFunctionSpace, sin, exp, Function, FunctionSpace
+    as_vector, sin, exp
 from gusto import *
 from math import pi
 
@@ -22,14 +22,12 @@ def state(tmpdir, geometry):
         x = SpatialCoordinate(mesh)
         mesh.init_cell_orientations(x)
         dt = pi/3. * 0.01
-        uexpr = as_vector([-x[1], x[0], 0.0])
 
     elif geometry == "slice":
         m = PeriodicIntervalMesh(15, 1.)
         mesh = ExtrudedMesh(m, layers=15, layer_height=1./15.)
         dt = 0.01
         x = SpatialCoordinate(mesh)
-        uexpr = as_vector([1.0, 0.0])
 
     else:
         raise ValueError("Specified geometry is not recognised")
@@ -40,6 +38,7 @@ def state(tmpdir, geometry):
                   output=output)
 
     return state
+
 
 @pytest.fixture
 def uexpr(geometry, state):
