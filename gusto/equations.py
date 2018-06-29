@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from collections import OrderedDict
 from firedrake import TestFunction, TrialFunction, FiniteElement, \
-    MixedFunctionSpace, FunctionSpace, SpatialCoordinate, sqrt
+    MixedFunctionSpace, FunctionSpace, SpatialCoordinate, sqrt, BrokenElement
 from gusto.diagnostics import Diagnostics
 from gusto.terms import *
 from gusto.transport_equation import *
@@ -10,6 +10,7 @@ from gusto.transport_equation import *
 class Equation(object, metaclass=ABCMeta):
 
     def __init__(self, function_space):
+        self.function_space = function_space
         self.terms = OrderedDict()
         self.test = TestFunction(function_space)
         self.trial = TrialFunction(function_space)
@@ -31,25 +32,42 @@ class Equation(object, metaclass=ABCMeta):
 class AdvectionEquation(Equation):
 
     def __init__(self, function_space, state,
-                 name=None, u_space=None, uexpr=None,
+                 name=None, uexpr=None,
+                 discretisation_option=None,
                  **kwargs):
 
-        super().__init__(function_space)
+        # save discretisation option for use in advection scheme
+        self.discretisation_option = discretisation_option
+        if discretisation_option == "embedded_DG":
+            Vdg = kwargs.pop("Vdg", None)
+            if Vdg is None:
+                # Create broken space
+                V_elt = BrokenElement(function_space.ufl_element())
+                V = state.spaces("broken", state.mesh, V_elt)
+            else:
+                V = Vdg
+        else:
+            V = function_space
+
+        super().__init__(V)
+
+        # if the name of the field is provided then this field needs
+        # to be created and added to the Diagnostics class
         if name:
             state.fields(name, function_space)
             if hasattr(state, "diagnostics"):
                 state.diagnostics.register(name)
             else:
                 state.diagnostics = Diagnostics(name)
-        if not u_space:
-            try:
-                u_space = state.spaces("HDiv")
-            except AttributeError:
-                raise ValueError("Must specify function space for advective velocity if state does not have the usual compatible finite element function spaces setup.")
+
+        u_space = state.spaces("HDiv")
+        state.fields('uadv', u_space)
+
+        # if uexpr is provided, use it to set the advective velocity
         if uexpr:
             state.fields('u', u_space).project(uexpr)
 
-        self.add_term(AdvectionTerm(state, **kwargs))
+        self.add_term(AdvectionTerm(state, V, **kwargs))
 
 
 class ShallowWaterMomentumEquation(Equation):
@@ -57,9 +75,9 @@ class ShallowWaterMomentumEquation(Equation):
     def __init__(self, function_space, state, opts):
         super().__init__(function_space)
         self.bcs = None
-        self.add_term(ShallowWaterPressureGradientTerm(state))
-        self.add_term(ShallowWaterCoriolisTerm(state))
-        self.add_term(VectorInvariantTerm(state))
+        self.add_term(ShallowWaterPressureGradientTerm(state, function_space))
+        self.add_term(ShallowWaterCoriolisTerm(state, function_space))
+        self.add_term(VectorInvariantTerm(state, function_space))
 
 
 class ShallowWaterDepthEquation(AdvectionEquation):

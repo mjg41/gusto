@@ -4,7 +4,7 @@ from firedrake import Function, LinearVariationalProblem, \
 from firedrake.utils import cached_property
 from gusto.configuration import DEBUG
 from gusto.state import FieldCreator
-from gusto.transport_equation import TransportTerm, EmbeddedDGAdvection
+from gusto.transport_equation import TransportTerm
 from firedrake import expression, function
 from firedrake.parloops import par_loop, READ, INC
 import ufl
@@ -88,12 +88,14 @@ class Advection(object, metaclass=ABCMeta):
         # the projector and output function will have been set up in the
         # equation class and we can get the correct function space from
         # the output function.
-        if isinstance(equation, EmbeddedDGAdvection):
+        self.embedded_dg = (
+            hasattr(equation, "discretisation_option")
+            and equation.discretisation_option == "embedded_DG")
+        if self.embedded_dg:
             # check that the field and the equation are compatible
-            if equation.V0 != field.function_space():
-                raise ValueError('The field to be advected is not compatible with the equation used.')
-            self.embedded_dg = True
-            fs = equation.space
+            # if equation.V0 != field.function_space():
+            #    raise ValueError('The field to be advected is not compatible with the equation used.')
+            fs = equation.function_space
             self.xdg_in = Function(fs)
             self.xdg_out = Function(fs)
             self.x_projected = Function(field.function_space())
@@ -102,7 +104,8 @@ class Advection(object, metaclass=ABCMeta):
                           'sub_pc_type': 'ilu'}
             self.Projector = Projector(self.xdg_out, self.x_projected,
                                        solver_parameters=parameters)
-            self.recovered = equation.recovered
+            # self.recovered = equation.recovered
+            self.recovered = False
             if self.recovered:
                 # set up the necessary functions
                 self.x_in = Function(field.function_space())
@@ -123,7 +126,6 @@ class Advection(object, metaclass=ABCMeta):
                     # when the "average" method comes into firedrake master, this will be
                     # self.x_out_projector = Projector(x_brok, self.x_projected, method="average")
         else:
-            self.embedded_dg = False
             fs = field.function_space()
 
         # setup required functions

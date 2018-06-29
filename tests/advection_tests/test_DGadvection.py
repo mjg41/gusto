@@ -30,7 +30,7 @@ def test_advection_dg(geometry, ibp, equation_form, scheme, error, state, uexpr,
     vspace = VectorFunctionSpace(state.mesh, "DG", 1)
     cell = state.mesh.ufl_cell().cellname()
     V1_elt = FiniteElement("BDM", cell, 2)
-    u_space = FunctionSpace(state.mesh, V1_elt)
+    state.spaces("HDiv", state.mesh, V1_elt)
 
     # expression for vector initial and final conditions
     vec_expr = [0.]*state.mesh.geometric_dimension()
@@ -57,14 +57,14 @@ def test_advection_dg(geometry, ibp, equation_form, scheme, error, state, uexpr,
             for scheme_opt in scheme:
                 fname = s.join(("f", ibp_opt, eqn_opt, scheme_opt))
                 scalar_fields.append(fname)
-                eqn = AdvectionEquation(fspace, state, fname, u_space, uexpr,
+                eqn = AdvectionEquation(fspace, state, fname, uexpr,
                                         ibp=ibp_opt, equation_form=eqn_opt)
                 f = state.fields(fname)
                 f.interpolate(f_init)
 
                 vname = s.join(("vecf", ibp_opt, eqn_opt, scheme_opt))
                 vector_fields.append(vname)
-                veqn = AdvectionEquation(vspace, state, vname, u_space, uexpr,
+                veqn = AdvectionEquation(vspace, state, vname, uexpr,
                                          ibp=ibp_opt, equation_form=eqn_opt)
                 v = state.fields(vname)
                 v.interpolate(vec_expr)

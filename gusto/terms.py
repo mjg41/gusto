@@ -1,15 +1,45 @@
 from abc import ABCMeta, abstractmethod
-from firedrake import FacetNormal, div, dx, inner
+from firedrake import FacetNormal, div, dx, inner, \
+    dS, dS_h, dS_v, ds, ds_v, ds_t, ds_b
 
 
 class Term(object, metaclass=ABCMeta):
 
     off_centering = 0.5
 
-    def __init__(self, state):
+    def __init__(self, state, function_space):
         self.state = state
+        self.function_space = function_space
         self.parameters = state.parameters
         self.n = FacetNormal(state.mesh)
+
+    def is_cg(self, V):
+        nvertex = V.ufl_domain().ufl_cell().num_vertices()
+        entity_dofs = V.finat_element.entity_dofs()
+        try:
+            return sum(map(len, entity_dofs[0].values())) == nvertex
+        except KeyError:
+            return sum(map(len, entity_dofs[(0, 0)].values())) == nvertex
+
+    @property
+    def dS(self):
+        if self.is_cg(self.function_space):
+            return None
+        else:
+            if self.function_space.extruded:
+                return (dS_h + dS_v)
+            else:
+                return dS
+
+    @property
+    def ds(self):
+        if self.is_cg(self.function_space):
+            return None
+        else:
+            if self.function_space.extruded:
+                return (ds_v + ds_t + ds_b)
+            else:
+                return ds
 
     @abstractmethod
     def evaluate(self, test, q, fields):

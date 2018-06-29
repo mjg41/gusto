@@ -1,5 +1,4 @@
-from firedrake import dx, dot, grad, div, jump, avg, dS, dS_v, dS_h, inner, \
-    ds, ds_v, ds_t, ds_b, \
+from firedrake import dx, dot, grad, div, jump, avg, inner, \
     outer, sign, cross, CellNormal, sqrt, Constant, \
     curl, BrokenElement, FunctionSpace
 from gusto.configuration import DEBUG
@@ -27,8 +26,8 @@ class TransportTerm(Term):
                         linear solver.
     """
 
-    def __init__(self, state, *, ibp="once", solver_params=None):
-        super().__init__(state)
+    def __init__(self, state, V, *, ibp="once", solver_params=None):
+        super().__init__(state, V)
 
         self.ibp = ibp
 
@@ -65,8 +64,8 @@ class LinearAdvectionTerm(TransportTerm):
                         linear solver.
     """
 
-    def __init__(self, state, qbar, ibp=None, equation_form="advective", solver_params=None):
-        super().__init__(state=state, ibp=ibp, solver_params=solver_params)
+    def __init__(self, state, V, qbar, ibp=None, equation_form="advective", solver_params=None):
+        super().__init__(state, V, ibp=ibp, solver_params=solver_params)
         if equation_form == "advective" or equation_form == "continuity":
             self.continuity = (equation_form == "continuity")
         else:
@@ -113,9 +112,9 @@ class AdvectionTerm(TransportTerm):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, *, ibp="once", equation_form="advective",
+    def __init__(self, state, V, *, ibp="once", equation_form="advective",
                  vector_manifold=False, solver_params=None, outflow=False):
-        super().__init__(state=state, ibp=ibp, solver_params=solver_params)
+        super().__init__(state, V, ibp=ibp, solver_params=solver_params)
         if equation_form == "advective" or equation_form == "continuity":
             self.continuity = (equation_form == "continuity")
         else:
@@ -145,12 +144,12 @@ class AdvectionTerm(TransportTerm):
         #if self.dS is not None and self.ibp is not None:
         if self.ibp is not None:
             L -= dot(jump(test), (un('+')*q('+')
-                                  - un('-')*q('-')))*dS
+                                  - un('-')*q('-')))*self.dS
             if self.ibp == "twice":
                 L += (inner(test('+'),
                             dot(uadv('+'), self.n('+'))*q('+'))
                       + inner(test('-'),
-                              dot(uadv('-'), self.n('-'))*q('-')))*dS
+                              dot(uadv('-'), self.n('-'))*q('-')))*self.dS
 
         if self.outflow:
             L -= test*un*q*self.ds
@@ -159,8 +158,8 @@ class AdvectionTerm(TransportTerm):
             w = test
             u = q
             n = self.n
-            L -= un('+')*inner(w('-'), n('+')+n('-'))*inner(u('+'), n('+'))*dS
-            L -= un('-')*inner(w('+'), n('+')+n('-'))*inner(u('-'), n('-'))*dS
+            L -= un('+')*inner(w('-'), n('+')+n('-'))*inner(u('+'), n('+'))*self.dS
+            L -= un('-')*inner(w('+'), n('+')+n('-'))*inner(u('-'), n('-'))*self.dS
         return L
 
 
@@ -194,7 +193,7 @@ class EmbeddedDGAdvection(AdvectionTerm):
                            will not be used.
     """
 
-    def __init__(self, state, ibp="once", equation_form="advective", vector_manifold=False, Vdg=None, solver_params=None, recovered_spaces=None, outflow=False):
+    def __init__(self, state, V, ibp="once", equation_form="advective", vector_manifold=False, Vdg=None, solver_params=None, recovered_spaces=None, outflow=False):
 
         # give equation the property V0, the space that the function should live in
         # in the absence of Vdg, this is used to set up the space for advection
@@ -221,7 +220,7 @@ class EmbeddedDGAdvection(AdvectionTerm):
         else:
             self.space = Vdg
 
-        super().__init__(state=state,
+        super().__init__(state,
                          V=self.space,
                          ibp=ibp,
                          equation_form=equation_form,
@@ -260,7 +259,7 @@ class SUPGAdvection(AdvectionTerm):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, ibp="twice", equation_form="advective", supg_params=None, solver_params=None, outflow=False):
+    def __init__(self, state, V, ibp="twice", equation_form="advective", supg_params=None, solver_params=None, outflow=False):
 
         if not solver_params:
             # SUPG method leads to asymmetric matrix (since the test function
@@ -269,7 +268,8 @@ class SUPGAdvection(AdvectionTerm):
                              'pc_type': 'bjacobi',
                              'sub_pc_type': 'ilu'}
 
-        super().__init__(state=state, V=V, ibp=ibp,
+        super().__init__(state, V,
+                         ibp=ibp,
                          equation_form=equation_form,
                          solver_params=solver_params,
                          outflow=outflow)
@@ -338,8 +338,8 @@ class VectorInvariantTerm(TransportTerm):
     :arg solver_params: (optional) dictionary of solver parameters to pass to the
                         linear solver.
     """
-    def __init__(self, state, *, ibp="once", solver_params=None):
-        super().__init__(state=state, ibp=ibp,
+    def __init__(self, state, V, *, ibp="once", solver_params=None):
+        super().__init__(state, V, ibp=ibp,
                          solver_params=solver_params)
 
         if state.mesh.topological_dimension() == 3 and ibp == "twice":
@@ -377,7 +377,7 @@ class VectorInvariantTerm(TransportTerm):
                 L = (
                     inner(gradperp(inner(test, perp(uadv))), q)*dx
                     + inner(jump(inner(test, perp(uadv)), self.n),
-                            perp_u_upwind(q))*dS
+                            perp_u_upwind(q))*self.dS
                 )
             else:
                 L = (
