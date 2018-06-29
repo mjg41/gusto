@@ -130,7 +130,8 @@ def pytest_generate_tests(metafunc):
     else:
         metafunc.parametrize("equation_form", [["advective", "continuity"]])
     scheme = metafunc.config.option.scheme
-    if 'scheme' in metafunc.fixturenames and scheme is not None:
-        metafunc.parametrize("scheme", [scheme])
-    else:
-        metafunc.parametrize("scheme", [["ssprk3", "im"]])
+    if 'scheme' in metafunc.fixturenames:
+        if scheme is not None:
+            metafunc.parametrize("scheme", [scheme])
+        else:
+            metafunc.parametrize("scheme", [["ssprk3", "im"]])
