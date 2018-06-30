@@ -67,6 +67,8 @@ class Advection(object, metaclass=ABCMeta):
             self.fields = FieldCreator()
             for f in state.fields:
                 self.fields(f.name(), f.function_space())
+            # initialise advective velocity
+            self.fields('u').assign(state.fields('u'))
 
             self.dt = self.state.timestepping.dt
 

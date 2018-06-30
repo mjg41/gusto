@@ -46,9 +46,8 @@ class AdvectionEquation(Equation):
                 u_space = state.spaces("HDiv")
             except AttributeError:
                 raise ValueError("Must specify function space for advective velocity if state does not have the usual compatible finite element function spaces setup.")
-        state.fields('uadv', u_space)
         if uexpr:
-            state.fields('uadv').project(uexpr)
+            state.fields('u', u_space).project(uexpr)
 
         self.add_term(AdvectionTerm(state, **kwargs))
 
