@@ -88,10 +88,10 @@ class LinearAdvectionTerm(TransportTerm):
     def evaluate(self, test, q, fields):
 
         if self.continuity:
-            L = (-dot(grad(test), self.ubar)*self.qbar*dx +
+            L = (dot(grad(test), self.ubar)*self.qbar*dx -
                  jump(self.ubar*test, self.n)*avg(self.qbar)*self.dS)
         else:
-            L = test*dot(self.ubar, self.state.k)*dot(self.state.k, grad(self.qbar))*dx
+            L = -test*dot(self.ubar, self.state.k)*dot(self.state.k, grad(self.qbar))*dx
         return L
 
 
@@ -133,34 +133,34 @@ class AdvectionTerm(TransportTerm):
 
         if self.continuity:
             if self.ibp == "once":
-                L = -inner(grad(test), outer(q, uadv))*dx
+                L = inner(grad(test), outer(q, uadv))*dx
             else:
-                L = inner(test, div(outer(q, uadv)))*dx
+                L = -inner(test, div(outer(q, uadv)))*dx
         else:
             if self.ibp == "once":
-                L = -inner(div(outer(test, uadv)), q)*dx
+                L = inner(div(outer(test, uadv)), q)*dx
             else:
-                L = inner(outer(test, uadv), grad(q))*dx
+                L = -inner(outer(test, uadv), grad(q))*dx
 
         #if self.dS is not None and self.ibp is not None:
         if self.ibp is not None:
-            L += dot(jump(test), (un('+')*q('+')
+            L -= dot(jump(test), (un('+')*q('+')
                                   - un('-')*q('-')))*dS
             if self.ibp == "twice":
-                L -= (inner(test('+'),
+                L += (inner(test('+'),
                             dot(uadv('+'), self.n('+'))*q('+'))
                       + inner(test('-'),
                               dot(uadv('-'), self.n('-'))*q('-')))*dS
 
         if self.outflow:
-            L += test*un*q*self.ds
+            L -= test*un*q*self.ds
 
         if self.vector_manifold:
             w = test
             u = q
             n = self.n
-            L += un('+')*inner(w('-'), n('+')+n('-'))*inner(u('+'), n('+'))*dS
-            L += un('-')*inner(w('+'), n('+')+n('-'))*inner(u('-'), n('-'))*dS
+            L -= un('+')*inner(w('-'), n('+')+n('-'))*inner(u('+'), n('+'))*dS
+            L -= un('-')*inner(w('+'), n('+')+n('-'))*inner(u('-'), n('-'))*dS
         return L
 
 
@@ -359,8 +359,8 @@ class VectorInvariantTerm(TransportTerm):
             both = lambda u: 2*avg(u)
 
             L = (
-                inner(q, curl(cross(uadv, test)))*dx
-                - inner(both(self.Upwind*q),
+                - inner(q, curl(cross(uadv, test)))*dx
+                + inner(both(self.Upwind*q),
                         both(cross(self.n, cross(uadv, test))))*self.dS
             )
 
@@ -375,20 +375,20 @@ class VectorInvariantTerm(TransportTerm):
 
             if self.ibp == "once":
                 L = (
-                    -inner(gradperp(inner(test, perp(uadv))), q)*dx
-                    - inner(jump(inner(test, perp(uadv)), self.n),
+                    inner(gradperp(inner(test, perp(uadv))), q)*dx
+                    + inner(jump(inner(test, perp(uadv)), self.n),
                             perp_u_upwind(q))*dS
                 )
             else:
                 L = (
-                    (-inner(test, div(perp(q))*self.perp(uadv)))*dx
-                    - inner(jump(inner(test, perp(uadv)), self.n),
+                    (inner(test, div(perp(q))*self.perp(uadv)))*dx
+                    + inner(jump(inner(test, perp(uadv)), self.n),
                             perp_u_upwind(q))*self.dS
-                    + jump(inner(test,
+                    - jump(inner(test,
                                  perp(uadv))*perp(q), self.n)*self.dS
                 )
 
-        L -= 0.5*div(test)*inner(q, uadv)*dx
+        L += 0.5*div(test)*inner(q, uadv)*dx
 
         return L
 
@@ -408,5 +408,5 @@ class EulerPoincareTerm(VectorInvariantTerm):
     def evaluate(self, test, q, fields):
         L = super().advection_term(q, fields)
         uadv = fields("uadv")
-        L -= 0.5*div(test)*inner(q, uadv)*dx
+        L += 0.5*div(test)*inner(q, uadv)*dx
         return L

@@ -135,7 +135,7 @@ class Advection(object, metaclass=ABCMeta):
         L = self.equation.mass_term(self.q1)
         for name, term in self.equation.terms.items():
             if isinstance(term, TransportTerm):
-                L -= self.dt*self.equation(self.q1, self.state.xn)
+                L += self.dt*self.equation(self.q1, self.state.xn)
         return L
 
     def update_ubar(self, xn, xnp1, alpha):
@@ -327,7 +327,7 @@ class ThetaMethod(Advection):
         L = self.equation.mass_term(self.equation.trial)
         for name, term in self.equation.terms.items():
             if isinstance(term, TransportTerm):
-                L += self.theta*self.dt*term(self.equation.test, self.equation.trial, self.state.xn)
+                L -= self.theta*self.dt*term(self.equation.test, self.equation.trial, self.state.xn)
         return L
 
     @cached_property
@@ -335,7 +335,7 @@ class ThetaMethod(Advection):
         L = self.equation.mass_term(self.q1)
         for name, term in self.equation.terms.items():
             if isinstance(term, TransportTerm):
-                L -= (1. - self.theta)*self.dt*term(self.equation.test, self.q1, self.state.xn)
+                L += (1. - self.theta)*self.dt*term(self.equation.test, self.q1, self.state.xn)
         return L
 
     def apply(self, x_in, x_out):
