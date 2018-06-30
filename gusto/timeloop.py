@@ -26,8 +26,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
 
         self.state = state
         state.xn = state.fields
-        if not hasattr(state, "xnp1"):
-            state.xnp1 = FieldCreator()
+        state.xnp1 = FieldCreator()
         for field, eqn in schemes:
             state.xnp1(field, state.fields(field).function_space())
         if physics_list is not None:
@@ -117,7 +116,6 @@ class BaseSemiImplicitTimestepper(BaseTimestepper):
         super().__init__(state, advected_fields, physics_list)
         self.equations = equations
 
-        state.xnp1 = FieldCreator()
         state.xnp1(equations.fieldlist, equations.mixed_function_space)
 
         if advected_fields is None:

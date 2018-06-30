@@ -406,7 +406,7 @@ class EulerPoincareTerm(VectorInvariantTerm):
     """
 
     def evaluate(self, test, q, fields):
-        L = super().advection_term(q, fields)
+        L = super().evaluate(test, q, fields)
         uadv = fields("u")
         L += 0.5*div(test)*inner(q, uadv)*dx
         return L
