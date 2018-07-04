@@ -7,7 +7,7 @@ from netCDF4 import Dataset
 import pytest
 
 
-def setup_sw(dirname, euler_poincare):
+def setup_sw(dirname, timestepper):
 
     refinements = 3  # number of horizontal cells = 20*(4^refinements)
 
@@ -62,13 +62,20 @@ def setup_sw(dirname, euler_poincare):
                       ('D', D0)])
 
     advected_fields = []
-    advected_fields.append(("u", ThetaMethod(state, u0, eqns("u"))))
+
+    if timestepper == "CrankNicolson":
+        advected_fields.append(("u", ThetaMethod(state, u0, eqns("u"))))
+    else:
+        advected_fields.append(("u", SSPRK3(state, u0, eqns("u"))))
     advected_fields.append(("D", SSPRK3(state, D0, eqns("D"))))
 
     linear_solver = ShallowWaterSolver(state, eqns)
 
     # build time stepper
-    stepper = CrankNicolson(state, eqns, advected_fields, linear_solver)
+    if timestepper == "CrankNicolson":
+        stepper = CrankNicolson(state, eqns, advected_fields, linear_solver)
+    else:
+        stepper = ImplicitMidpoint(state, eqns, advected_fields, linear_solver)
 
     f = parameters.coriolis
     vspace = FunctionSpace(state.mesh, "CG", 3)
@@ -83,17 +90,17 @@ def setup_sw(dirname, euler_poincare):
     return stepper, 0.25*day
 
 
-def run_sw(dirname, euler_poincare):
+def run_sw(dirname, timestepper):
 
-    stepper, tmax = setup_sw(dirname, euler_poincare)
+    stepper, tmax = setup_sw(dirname, timestepper)
     stepper.run(t=0, tmax=tmax)
 
 
-@pytest.mark.parametrize("euler_poincare", [False])
-def test_sw_setup(tmpdir, euler_poincare):
+@pytest.mark.parametrize("timestepper", ["CrankNicolson", "ImplicitMidpoint"])
+def test_sw_setup(tmpdir, timestepper):
 
     dirname = str(tmpdir)
-    run_sw(dirname, euler_poincare=euler_poincare)
+    run_sw(dirname, timestepper)
     filename = path.join(dirname, "sw/diagnostics.nc")
     data = Dataset(filename, "r")
 
