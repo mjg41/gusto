@@ -31,8 +31,7 @@ class ShallowWaterCoriolisTerm(Term):
 
     def evaluate(self, test, q, fields):
         f = self.parameters.coriolis
-        u = fields("u")
-        return -f*inner(test, self.state.perp(u))*dx
+        return -f*inner(test, self.state.perp(q))*dx
 
 
 class ShallowWaterTopographyTerm(Term):
