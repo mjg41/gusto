@@ -1,11 +1,11 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 from pyop2.profiling import timed_stage
 from gusto.configuration import logger
 from gusto.forcing import Forcing
 from gusto.state import FieldCreator
 from firedrake import DirichletBC
 
-__all__ = ["Timestepper", "CrankNicolson"]
+__all__ = ["Timestepper", "CrankNicolson", "ImplicitMidpoint"]
 
 
 class BaseTimestepper(object, metaclass=ABCMeta):
@@ -124,10 +124,18 @@ class BaseSemiImplicitTimestepper(BaseTimestepper):
             self.advected_fields = ()
         else:
             self.advected_fields = tuple(advected_fields)
+
+        for field, scheme in self.advected_fields:
+            scheme.setup_labels(self.label)
+
         if diffused_fields is None:
             self.diffused_fields = ()
         else:
             self.diffused_fields = tuple(diffused_fields)
+
+    @abstractproperty
+    def label(self):
+        pass
 
     @property
     def passive_advection(self):
@@ -198,6 +206,10 @@ class CrankNicolson(BaseSemiImplicitTimestepper):
 
         self.forcing = Forcing(state, equations)
 
+    @property
+    def label(self):
+        return "advection"
+
     def timestep(self, state):
         super().timestep(state)
 
@@ -234,6 +246,67 @@ class CrankNicolson(BaseSemiImplicitTimestepper):
                     self.linear_solver.solve()  # solves linear system and places result in state.dy
 
                 xnp1 += state.dy('xfields')
+
+            self._apply_bcs()
+
+        state.xn('xfields').assign(state.xnp1('xfields'))
+
+
+class ImplicitMidpoint(BaseSemiImplicitTimestepper):
+    """
+    This class implements a Crank-Nicolson discretisation, with Strang
+    splitting and auxilliary semi-Lagrangian advection.
+
+    :arg state: a :class:`.State` object
+    :arg advected_fields: iterable of ``(field_name, scheme)`` pairs
+        indicating the fields to advect, and the
+        :class:`~.Advection` to use.
+    :arg linear_solver: a :class:`.TimesteppingSolver` object
+    :arg diffused_fields: optional iterable of ``(field_name, scheme)``
+        pairs indictaing the fields to diffusion, and the
+        :class:`~.Diffusion` to use.
+    :arg physics_list: optional list of classes that implement `physics` schemes
+    """
+
+    def __init__(self, state, equations, advected_fields, linear_solver,
+                 diffused_fields=None, physics_list=None):
+
+        super().__init__(state, equations, advected_fields, physics_list)
+        self.linear_solver = linear_solver
+
+        # list of fields that are advected as part of the nonlinear iteration
+        self.active_advection = [(name, scheme) for name, scheme in advected_fields if name in equations.fieldlist]
+
+    @property
+    def label(self):
+        return "all"
+
+    def timestep(self, state, **kwargs):
+        super().timestep(state, **kwargs)
+
+    def semi_implicit_step(self, state, maxk=4):
+
+        alpha = state.timestepping.alpha
+        xrhs = state.xrhs('xfields')
+        xnp1 = state.xnp1('xfields')
+
+        xrhs.assign(0.)
+
+        for k in range(maxk):
+
+            with timed_stage("Advection"):
+                for name, advection in self.active_advection:
+                    # first computes ubar from state.xn and state.xnp1
+                    advection.update_xbar(state.xn, state.xnp1, alpha)
+                    # advects a field from xn and puts result in xnp1
+                    advection.apply(state.xn(name), state.xrhs(name))
+
+            xrhs -= state.xnp1('xfields')
+
+            with timed_stage("Implicit solve"):
+                self.linear_solver.solve()  # solves linear system and places result in state.dy
+
+            xnp1 += state.dy('xfields')
 
             self._apply_bcs()
 
