@@ -137,16 +137,23 @@ class Advection(object, metaclass=ABCMeta):
 
     @abstractproperty
     def rhs(self):
-        L = self.equation.mass_term(self.q1)
-        for name, term in self.equation.terms.items():
-            if isinstance(term, TransportTerm):
-                L += self.dt*self.equation(self.q1, self.fields)
+        L = (
+            self.equation.mass_term(self.q1)
+            + self.dt*self.equation(self.q1, self.fields, self.label)
+            )
         return L
+
+    def setup_labels(self, label):
+        self.label = label
 
     def update_ubar(self, xn, xnp1, alpha):
         un = xn('u')
         unp1 = xnp1('u')
         self.fields('u').assign(un + alpha*(unp1-un))
+
+    def update_xbar(self, xn, xnp1, alpha):
+        for f in self.fields:
+            f.assign(xn(f.name()) + alpha*(xnp1(f.name())-xn(f.name())))
 
     @cached_property
     def solver(self):
@@ -329,18 +336,20 @@ class ThetaMethod(Advection):
 
     @cached_property
     def lhs(self):
-        L = self.equation.mass_term(self.equation.trial)
-        for name, term in self.equation.terms.items():
-            if isinstance(term, TransportTerm):
-                L -= self.theta*self.dt*term(self.equation.test, self.equation.trial, self.fields)
+        L = (
+            self.equation.mass_term(self.equation.trial)
+            - self.theta*self.dt*self.equation(
+                self.equation.trial, self.fields, self.label)
+        )
         return L
 
     @cached_property
     def rhs(self):
-        L = self.equation.mass_term(self.q1)
-        for name, term in self.equation.terms.items():
-            if isinstance(term, TransportTerm):
-                L += (1. - self.theta)*self.dt*term(self.equation.test, self.q1, self.fields)
+        L = (
+            self.equation.mass_term(self.q1)
+            + (1. - self.theta)*self.dt*self.equation(
+                self.q1, self.fields, self.label)
+            )
         return L
 
     def apply(self, x_in, x_out):

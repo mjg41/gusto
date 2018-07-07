@@ -11,20 +11,27 @@ class Equation(object, metaclass=ABCMeta):
 
     def __init__(self, function_space):
         self.terms = OrderedDict()
+        self.term_labels = {}
         self.test = TestFunction(function_space)
         self.trial = TrialFunction(function_space)
 
     def mass_term(self, q):
         return inner(self.test, q)*dx
 
-    def add_term(self, term):
+    def add_term(self, term, label=None):
         key = term.__class__.__name__
         self.terms[key] = term
+        self.label_term(term, label)
 
-    def __call__(self, q, fields):
+    def label_term(self, term, label):
+        key = term.__class__.__name__
+        self.term_labels[key] = label
+
+    def __call__(self, q, fields, label="all"):
         L = 0.
         for name, term in self.terms.items():
-            L += term(self.test, q, fields)
+            if label == "all" or self.term_labels[name] == label:
+                L += term(self.test, q, fields)
         return L
 
 
@@ -49,7 +56,7 @@ class AdvectionEquation(Equation):
         if uexpr:
             state.fields('u', u_space).project(uexpr)
 
-        self.add_term(AdvectionTerm(state, **kwargs))
+        self.add_term(AdvectionTerm(state, **kwargs), label="advection")
 
 
 class ShallowWaterMomentumEquation(Equation):
@@ -59,7 +66,7 @@ class ShallowWaterMomentumEquation(Equation):
         self.bcs = None
         self.add_term(ShallowWaterPressureGradientTerm(state))
         self.add_term(ShallowWaterCoriolisTerm(state))
-        self.add_term(VectorInvariantTerm(state))
+        self.add_term(VectorInvariantTerm(state), label="advection")
 
 
 class ShallowWaterDepthEquation(AdvectionEquation):
