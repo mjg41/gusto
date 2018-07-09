@@ -45,7 +45,9 @@ class TimesteppingParameters(Configuration):
     alpha = 0.5
     maxk = 4
     maxi = 1
-
+    adaptive = False
+    CourantLimit = None
+    maxDt = None
 
 class OutputParameters(Configuration):
 

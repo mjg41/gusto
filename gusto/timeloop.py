@@ -90,6 +90,14 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         while t < tmax - 0.5*dt:
             logger.info("at start of timestep, t=%s, dt=%s" % (t, dt))
 
+            if state.timestepping.adaptive:
+                Courant = state.fields("CourantNumber")
+                maxCourant = Courant.dat.data.max()
+                maxFreq = maxCourant/dt
+                if maxFreq != 0:
+                    dt = state.timestepping.CourantLimit/maxFreq
+                    dt = min(dt,state.timestepping.maxDt)
+
             t += dt
             state.t.assign(t)
 
