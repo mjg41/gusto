@@ -74,7 +74,8 @@ class OutputParameters(Configuration):
     #: List of ordered pairs (name, points) where name is the field
     # name and points is the points at which to dump them
     point_data = []
-
+    # Switch to write adaptive timestepping information to diagnostics.py
+    write_timestepping = False
 
 class CompressibleParameters(Configuration):
 
