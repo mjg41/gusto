@@ -135,12 +135,14 @@ class DiagnosticsOutput(object):
             var.units = "seconds"
             for name in diagnostics.fields:
                 group = dataset.createGroup(name)
-                group = "timestepping"
                 for diagnostic in diagnostics.available_diagnostics:
                     group.createVariable(diagnostic, np.float64, ("time", ))
-                     
-             group.createVariable(state.timestepping.dt, np.float64, ("time", ))
-                    
+
+            if state.output.timestepping:                     
+                group = "timestepping"
+                group.createVariable(state.timestepping.dt, np.float64, ("time", ))
+                group.createVariable(state.t, np.float64, ("time", ))
+                group.createVariable(time.time(), np.float64, ("time", ))
 
     def dump(self, state, t):
         """Dump diagnostics.
@@ -159,8 +161,8 @@ class DiagnosticsOutput(object):
                     var = group.variables[dname]
                     var[idx:idx + 1] = diagnostic(field)
  
-            if state.timestepping.adaptive_dt:
-                for name in 
+            if state.output.timestepping:
+                for name in  
 
 
 class State(object):
