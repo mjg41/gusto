@@ -97,7 +97,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                 if maxFreq != 0:
                     dt = state.timestepping.CourantLimit/maxFreq
                     dt = min(dt,state.timestepping.maxDt)
-                    state.timestepping.dt.assign(dt)
+                    state.timestepping.dt = dt
 
             t += dt
             state.t.assign(t)
