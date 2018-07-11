@@ -9,7 +9,7 @@ def setup_gaussian(dirname):
 
     fieldlist = ['u', 'D']
     parameters = ShallowWaterParameters(H=1.0, g=1.0)
-    timestepping = TimesteppingParameters(dt=0.1, adaptive_dt=True, CourantLimit=0.3, maxDt=0.1)
+    timestepping = TimesteppingParameters(dt=0.1, adaptive=True, CourantLimit=0.3, maxDt=0.1)
     output = OutputParameters(dirname=dirname+'/sw_plane_gaussian_subcycled', timestepping=True)
     diagnostic_fields = [CourantNumber()]
 
@@ -35,8 +35,8 @@ def setup_gaussian(dirname):
     ueqn = EmbeddedDGAdvection(state, u0.function_space())
     Deqn = AdvectionEquation(state, D0.function_space(), equation_form="continuity")
     advected_fields = []
-    advected_fields.append(("u", SSPRK3(state, u0, ueqn, subcycles=2)))
-    advected_fields.append(("D", SSPRK3(state, D0, Deqn, subcycles=2)))
+    advected_fields.append(("u", SSPRK3(state, u0, ueqn)))
+    advected_fields.append(("D", SSPRK3(state, D0, Deqn)))
 
     linear_solver = ShallowWaterSolver(state)
 
@@ -55,6 +55,6 @@ def run(dirname):
     stepper.run(t=0, tmax=0.3)
 
 
-def test_subcycling(tmpdir):
+def test_adaptive_dt(tmpdir):
     dirname = str(tmpdir)
     run(dirname)
