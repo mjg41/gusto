@@ -144,7 +144,7 @@ class DiagnosticsOutput(object):
                 for name in timestepping_vars:
                     group.createVariable(name, np.float64, ("time", ))
 
-    def dump(self, state, t):
+    def dump(self, state, t, timestepping):
         """Dump diagnostics.
 
         :arg state: The :class:`State` at which to compute the diagnostic.
@@ -352,7 +352,7 @@ class State(object):
             self.diagnostic_output = DiagnosticsOutput(diagnostics_filename,
                                                        self.diagnostics,
                                                        self.output.dirname,
-                                                       create=not pickup, timestepping=output.timestepping)
+                                                       create=not pickup, timestepping=self.output.timestepping)
 
         if len(self.output.point_data) > 0:
             pointdata_filename = self.dumpdir+"/point_data.nc"
@@ -393,7 +393,7 @@ class State(object):
                     field(self)
 
                 # Output diagnostic data
-                self.diagnostic_output.dump(self, t)
+                self.diagnostic_output.dump(self, t, self.output.timestepping)
 
             if len(self.output.point_data) > 0:
                 # Output pointwise data
