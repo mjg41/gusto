@@ -114,7 +114,7 @@ class PointDataOutput(object):
 
 
 class DiagnosticsOutput(object):
-    def __init__(self, filename, diagnostics, description, create=True):
+    def __init__(self, filename, diagnostics, description, create=True, timestepping=False):
         """Create a dump file that stores diagnostics.
 
         :arg filename: The filename.
@@ -138,11 +138,11 @@ class DiagnosticsOutput(object):
                 for diagnostic in diagnostics.available_diagnostics:
                     group.createVariable(diagnostic, np.float64, ("time", ))
 
-            #if state.output.timestepping:
-            group = dataset.createGroup("timestepping")
-            timestepping_vars = ["dt","solver_t","walltime"]
-            for name in timestepping_vars:
-                group.createVariable(name, np.float64, ("time", ))
+            if timestepping:
+                group = dataset.createGroup("timestepping")
+                timestepping_vars = ["dt","solver_t","walltime"]
+                for name in timestepping_vars:
+                    group.createVariable(name, np.float64, ("time", ))
 
     def dump(self, state, t):
         """Dump diagnostics.
@@ -161,14 +161,14 @@ class DiagnosticsOutput(object):
                     var = group.variables[dname]
                     var[idx:idx + 1] = diagnostic(field)
  
-            #if state.output.timestepping:
-            group = dataset.groups["timestepping"]
-            var = group.variables["dt"]
-            var[idx:idx + 1] = state.timestepping.dt
-            var = group.variables["solver_t"]
-            var[idx:idx + 1] = state.t
-            var = group.variables["walltime"]
-            var[idx:idx + 1] = time.time()
+            if timestepping:
+                group = dataset.groups["timestepping"]
+                var = group.variables["dt"]
+                var[idx:idx + 1] = state.timestepping.dt
+                var = group.variables["solver_t"]
+                var[idx:idx + 1] = state.t
+                var = group.variables["walltime"]
+                var[idx:idx + 1] = time.time()
 
 class State(object):
     """
@@ -352,7 +352,7 @@ class State(object):
             self.diagnostic_output = DiagnosticsOutput(diagnostics_filename,
                                                        self.diagnostics,
                                                        self.output.dirname,
-                                                       create=not pickup)
+                                                       create=not pickup, timestepping=output.timestepping)
 
         if len(self.output.point_data) > 0:
             pointdata_filename = self.dumpdir+"/point_data.nc"
