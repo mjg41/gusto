@@ -88,8 +88,6 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         state = self.state
         dt = state.timestepping.dt
 
-        fileDt = open("results/tmp/dt.txt","w")
-
         while t < tmax - 0.5*dt:
             logger.info("at start of timestep, t=%s, dt=%s" % (t, dt))
 
@@ -102,10 +100,6 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                     dt = state.timestepping.CourantLimit/maxFreq
                     dt = min(dt, maxNextDt, state.timestepping.maxDt)
                     state.timestepping.dt = dt
-
-                fileDt.write(str(maxCourant) + ', ' + str(maxFreq) + ', ' + str(dt) + '\n')
-                fileDt.flush()
-                os.fsync(fileDt.fileno())
 
             t += dt
             state.t.assign(t)
