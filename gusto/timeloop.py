@@ -100,7 +100,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                 maxNextDt = dt + dt*state.timestepping.maxFracIncreaseDt
                 if maxFreq != 0:
                     dt = state.timestepping.CourantLimit/maxFreq
-                    dt = min(dt, maxNewDt, state.timestepping.maxDt)
+                    dt = min(dt, maxNextDt, state.timestepping.maxDt)
                     state.timestepping.dt = dt
 
                 fileDt.write(str(maxCourant) + ', ' + str(maxFreq) + ', ' + str(dt) + '\n')
