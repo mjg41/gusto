@@ -3,7 +3,6 @@ from pyop2.profiling import timed_stage
 from gusto.configuration import logger
 from gusto.linear_solvers import IncompressibleSolver
 from firedrake import DirichletBC
-import os as os
 
 __all__ = ["CrankNicolson", "AdvectionDiffusion"]
 

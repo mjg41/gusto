@@ -50,6 +50,7 @@ class TimesteppingParameters(Configuration):
     maxDt = 1
     maxFracIncreaseDt = 0
 
+
 class OutputParameters(Configuration):
 
     """
@@ -77,6 +78,7 @@ class OutputParameters(Configuration):
     point_data = []
     # Switch to write adaptive timestepping information to diagnostics.py
     timestepping = False
+
 
 class CompressibleParameters(Configuration):
 

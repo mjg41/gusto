@@ -140,7 +140,7 @@ class DiagnosticsOutput(object):
 
             if timestepping:
                 group = dataset.createGroup("timestepping")
-                timestepping_vars = ["dt","solver_t","walltime"]
+                timestepping_vars = ["dt", "solver_t", "walltime"]
                 for name in timestepping_vars:
                     group.createVariable(name, np.float64, ("time", ))
 
@@ -160,7 +160,7 @@ class DiagnosticsOutput(object):
                     diagnostic = getattr(self.diagnostics, dname)
                     var = group.variables[dname]
                     var[idx:idx + 1] = diagnostic(field)
- 
+
             if timestepping:
                 group = dataset.groups["timestepping"]
                 var = group.variables["dt"]
@@ -169,6 +169,7 @@ class DiagnosticsOutput(object):
                 var[idx:idx + 1] = state.t
                 var = group.variables["walltime"]
                 var[idx:idx + 1] = time.time()
+
 
 class State(object):
     """
