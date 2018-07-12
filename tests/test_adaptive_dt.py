@@ -9,7 +9,7 @@ def setup_gaussian(dirname):
 
     fieldlist = ['u', 'D']
     parameters = ShallowWaterParameters(H=1.0, g=1.0)
-    timestepping = TimesteppingParameters(dt=0.1/2, adaptive=True, CourantLimit=0.3, maxDt=0.1)
+    timestepping = TimesteppingParameters(dt=0.1/2, adaptive=True, CourantLimit=0.3, maxDt=0.1, maxFracIncreaseDt=0.1)
     output = OutputParameters(dirname=dirname+'/sw_plane_gaussian_subcycled', timestepping=True)
     diagnostic_fields = [CourantNumber()]
 
