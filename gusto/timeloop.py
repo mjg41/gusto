@@ -92,7 +92,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
 
             if state.timestepping.adaptive:
                 Courant = state.fields("CourantNumber")
-                maxCourant = Courant.dat.data.max()
+                maxCourant = max(Courant.dat.data)
                 maxFreq = maxCourant/dt
                 maxNextDt = dt + dt*state.timestepping.maxFracIncreaseDt
                 if maxFreq != 0:
