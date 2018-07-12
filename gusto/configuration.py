@@ -48,6 +48,7 @@ class TimesteppingParameters(Configuration):
     adaptive = False
     CourantLimit = None
     maxDt = None
+    maxDtIncrease = None
 
 class OutputParameters(Configuration):
 

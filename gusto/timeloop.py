@@ -97,9 +97,10 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                 Courant = state.fields("CourantNumber")
                 maxCourant = Courant.dat.data.max()
                 maxFreq = maxCourant/dt
+                maxNextDt = dt + dt*timestepping.maxDtIncrease
                 if maxFreq != 0:
                     dt = state.timestepping.CourantLimit/maxFreq
-                    dt = min(dt,state.timestepping.maxDt)
+                    dt = min(dt, maxNewDt, state.timestepping.maxDt)
                     state.timestepping.dt = dt
 
                 fileDt.write(str(maxCourant) + ', ' + str(maxFreq) + ', ' + str(dt) + '\n')
