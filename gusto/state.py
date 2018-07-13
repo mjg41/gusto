@@ -415,7 +415,7 @@ class State(object):
                     self.dumpfile_ll.write(*self.to_dump_latlon)
 
             if (self.output.dumpfreq_method == "time"):
-                if t >= self.output.nextDumpT:
+                if np.float_(self.t) >= self.output.nextDumpT:
                     self.dumpfile.write(*self.to_dump)
                     self.output.nextDumpT += self.output.dumpfreq
 
