@@ -60,7 +60,11 @@ class OutputParameters(Configuration):
     #: log_level for logger, can be DEBUG, INFO or WARNING. Takes
     #: default value "warning"
     log_level = WARNING
+    # Choose dumpfreq method, i.e., "nsteps" or "time":
+    dumpfreq_method = "nsteps"
+    # Set dumpfreq value using chosen method set by dumpfreq_method:
     dumpfreq = 1
+    nextDumpT = 0
     dumplist = None
     dumplist_latlon = []
     dump_diagnostics = True

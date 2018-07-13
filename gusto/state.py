@@ -406,13 +406,18 @@ class State(object):
                     self.chkpt.store(field)
                 self.chkpt.write_attribute("/", "time", t)
 
-            if (next(self.dumpcount) % self.output.dumpfreq) == 0:
+            if (self.output.dumpfreq_method == "nsteps") and (next(self.dumpcount) % self.output.dumpfreq == 0):
                 # dump fields
                 self.dumpfile.write(*self.to_dump)
 
                 # dump fields on latlon mesh
                 if len(self.output.dumplist_latlon) > 0:
                     self.dumpfile_ll.write(*self.to_dump_latlon)
+
+            if (self.output.dumpfreq_method == "time"):
+                if t >= self.output.nextDumpT:
+                    self.dumpfile.write(*self.to_dump)
+                    self.output.nextDumpT += self.output.dumpfreq
 
         return t
 
