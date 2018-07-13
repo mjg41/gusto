@@ -166,7 +166,7 @@ class DiagnosticsOutput(object):
                 var = group.variables["dt"]
                 var[idx:idx + 1] = state.timestepping.dt
                 var = group.variables["solver_t"]
-                var[idx:idx + 1] = state.t
+                var[idx:idx + 1] = t
                 var = group.variables["walltime"]
                 var[idx:idx + 1] = time.time()
 
