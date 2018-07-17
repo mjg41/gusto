@@ -388,25 +388,31 @@ class State(object):
                 raise NotImplementedError("Must set checkpoint True if pickup")
         else:
 
-            if self.output.dump_diagnostics:
-                # Compute diagnostic fields
-                for field in self.diagnostic_fields:
-                    field(self)
+            if self.output.dumpfreq_method == "nsteps":
+                dump = next(self.dumpcount) % self.output.dumpfreq == 0
+            if self.output.dumpfreq_method == "time":
+                dump = t >= self.output.nextDumpT
 
-                # Output diagnostic data
-                self.diagnostic_output.dump(self, t, self.output.timestepping)
+            if dump:
 
-            if len(self.output.point_data) > 0:
-                # Output pointwise data
-                self.pointdata_output.dump(self.fields, t)
+                if self.output.dump_diagnostics:
+                    # Compute diagnostic fields
+                    for field in self.diagnostic_fields:
+                        field(self)
 
-            # Dump all the fields to the checkpointing file (backup version)
-            if self.output.checkpoint:
-                for field in self.to_pickup:
-                    self.chkpt.store(field)
-                self.chkpt.write_attribute("/", "time", t)
+                    # Output diagnostic data
+                    self.diagnostic_output.dump(self, t, self.output.timestepping)
 
-            if (self.output.dumpfreq_method == "nsteps") and (next(self.dumpcount) % self.output.dumpfreq == 0):
+                if len(self.output.point_data) > 0:
+                    # Output pointwise data
+                    self.pointdata_output.dump(self.fields, t)
+
+                # Dump all the fields to the checkpointing file (backup version)
+                if self.output.checkpoint:
+                    for field in self.to_pickup:
+                        self.chkpt.store(field)
+                    self.chkpt.write_attribute("/", "time", t)
+
                 # dump fields
                 self.dumpfile.write(*self.to_dump)
 
@@ -414,9 +420,7 @@ class State(object):
                 if len(self.output.dumplist_latlon) > 0:
                     self.dumpfile_ll.write(*self.to_dump_latlon)
 
-            if (self.output.dumpfreq_method == "time"):
-                if np.float_(self.t) >= self.output.nextDumpT:
-                    self.dumpfile.write(*self.to_dump)
+                if self.output.dumpfreq_method == "time":
                     self.output.nextDumpT += self.output.dumpfreq
 
         return t
