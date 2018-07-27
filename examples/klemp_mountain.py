@@ -15,13 +15,13 @@ if '--hybridization' in sys.argv:
 else:
     hybridization = False
 
-nlayers = 70  # horizontal layers
-columns = 180  # number of columns
-L = 144000.
+nlayers = 40  # horizontal layers
+columns = 600  # number of columns
+L = 30000.
 m = PeriodicIntervalMesh(columns, L)
 
 # build volume mesh
-H = 35000.  # Height position of the model top
+H = 200000.  # Height position of the model top
 ext_mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 Vc = VectorFunctionSpace(ext_mesh, "DG", 2)
 coord = SpatialCoordinate(ext_mesh)
@@ -29,12 +29,12 @@ x = Function(Vc).interpolate(as_vector([coord[0], coord[1]]))
 a = 5000
 xc = L/2.
 x, z = SpatialCoordinate(ext_mesh)
-lambda = 5000
+#lambda = 5000
 hm = 1000.
-zs = hm*exp(-(x/a)^2)*cos(pi*x/lambda)
+zs = hm*exp(-(x-xc/a)**2)*cos(pi*(x-xc)/5000)
 
-smooth_z = False
-dirname = 'nh_mountain'
+smooth_z = True
+dirname = 'klemp_mountain_inversion'
 if smooth_z:
     dirname += '_smootherz'
     zh = 5000.
@@ -48,7 +48,7 @@ mesh = Mesh(new_coords)
 # sponge function
 W_DG = FunctionSpace(mesh, "DG", 2)
 x, z = SpatialCoordinate(mesh)
-zc = H-10000.
+zc = H-5000.
 mubar = 0.15/dt
 mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
 mu = Function(W_DG).interpolate(mu_top)
@@ -90,14 +90,15 @@ Vr = rho0.function_space()
 # Thermodynamic constants required for setting initial conditions
 # and reference profiles
 g = parameters.g
-N = parameters.N
+#N = 0.01
+N = conditional(z<3000, 0.02, 0.01) and conditional(z>2000, 0.02, 0.01)
 p_0 = parameters.p_0
 c_p = parameters.cp
 R_d = parameters.R_d
 kappa = parameters.kappa
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
-Tsurf = 300.
+Tsurf = 288.
 thetab = Tsurf*exp(N**2*z/g)
 theta_b = Function(Vt).interpolate(thetab)
 
@@ -152,7 +153,8 @@ compressible_hydrostatic_balance(state, theta_b, rho_b, Pi,
 
 theta0.assign(theta_b)
 rho0.assign(rho_b)
-u0.project(as_vector([10.0, 0.0]))
+#u0.project(as_vector([10.0, 0.0]))
+
 remove_initial_w(u0, state.Vv)
 
 state.initialise([('u', u0),
