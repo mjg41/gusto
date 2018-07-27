@@ -49,9 +49,9 @@ mesh = Mesh(new_coords)
 W_DG = FunctionSpace(mesh, "DG", 2)
 x, z = SpatialCoordinate(mesh)
 zc = H-5000.
-mubar = 0.15/dt
-mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
-mu = Function(W_DG).interpolate(mu_top)
+#mubar = 0.15/dt
+#mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
+#mu = Function(W_DG).interpolate(mu_top)
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 
@@ -69,7 +69,7 @@ diagnostic_fields = [CourantNumber(), VelocityZ()]
 
 state = State(mesh, vertical_degree=1, horizontal_degree=1,
               family="CG",
-              sponge_function=mu,
+              #sponge_function=mu,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
@@ -91,7 +91,7 @@ Vr = rho0.function_space()
 # and reference profiles
 g = parameters.g
 #N = 0.01
-N = conditional(z<3000, 0.02, 0.01) and conditional(z>2000, 0.02, 0.01)
+N = conditional(z<3000, conditional(z>2000, 0.02, 0.01), 0.01)
 p_0 = parameters.p_0
 c_p = parameters.cp
 R_d = parameters.R_d
