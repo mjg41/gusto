@@ -15,13 +15,13 @@ if '--hybridization' in sys.argv:
 else:
     hybridization = False
 
-nlayers = 300  # horizontal layers
+nlayers = 200  # horizontal layers
 columns = 2000  # number of columns
 L = 200000.
 m = PeriodicIntervalMesh(columns, L)
 
 # build volume mesh
-H = 30000.  # Height position of the model top
+H = 20000.  # Height position of the model top
 ext_mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 Vc = VectorFunctionSpace(ext_mesh, "DG", 2)
 coord = SpatialCoordinate(ext_mesh)
@@ -30,7 +30,7 @@ a = 5000
 xc = L/2.
 x, z = SpatialCoordinate(ext_mesh)
 hm = 1000.
-zs = hm*(exp(-(x-xc)/a)**2)*(cos(pi*(x-xc)/4000))**2
+zs = hm*exp(-((x-xc)/a)**2)*(cos(pi*(x-xc)/4000))**2
 
 smooth_z = True
 dirname = 'klemp_mountain_inversion'
@@ -58,7 +58,7 @@ if hybridization:
     dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
-                          dumpfreq=18,
+                          dumpfreq=1,
                           dumplist=['u'],
                           perturbation_fields=['theta', 'rho'])
 
