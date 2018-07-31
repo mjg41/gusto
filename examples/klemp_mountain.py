@@ -13,7 +13,7 @@ else:
 if '--hybridization' in sys.argv:
     hybridization = True
 else:
-    hybridization = False
+    hybridization = True
 
 nlayers = 20  # horizontal layers
 columns = 200  # number of columns
@@ -101,7 +101,7 @@ Tsurf = 288.
 Tlayer1 = 293.93386833357198
 Tlayer2 = 332.19453627634192
 thetab = conditional(z<2000, Tsurf*exp(N**2*z/g),conditional(z<3000,Tlayer1*exp(N**2*z/g),Tlayer2*exp(N**2*z/g)))
-theta_b = Function(Vt).interpolate(thetab)
+theta_b = Function(Vt).project(thetab)
 
 # Calculate hydrostatic Pi
 piparams = {'pc_type': 'fieldsplit',
