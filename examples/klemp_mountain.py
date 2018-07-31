@@ -15,8 +15,8 @@ if '--hybridization' in sys.argv:
 else:
     hybridization = False
 
-nlayers = 200  # horizontal layers
-columns = 2000  # number of columns
+nlayers = 20  # horizontal layers
+columns = 200  # number of columns
 L = 200000.
 m = PeriodicIntervalMesh(columns, L)
 
@@ -58,8 +58,8 @@ if hybridization:
     dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
-                          dumpfreq=1,
-                          dumplist=['u'],
+                          dumpfreq=18,
+                          dumplist=['u', 'theta', 'rho'],
                           perturbation_fields=['theta', 'rho'])
 
 parameters = CompressibleParameters(g=9.80665, cp=1004.)
@@ -98,7 +98,9 @@ kappa = parameters.kappa
 
 # N^2 = (g/theta)dtheta/dz => dtheta/dz = theta N^2g => theta=theta_0exp(N^2gz)
 Tsurf = 288.
-thetab = Tsurf*exp(N**2*z/g)
+Tlayer1 = 293.93386833357198
+Tlayer2 = 332.19453627634192
+thetab = conditional(z<2000, Tsurf*exp(N**2*z/g),conditional(z<3000,Tlayer1*exp(N**2*z/g),Tlayer2*exp(N**2*z/g)))
 theta_b = Function(Vt).interpolate(thetab)
 
 # Calculate hydrostatic Pi
