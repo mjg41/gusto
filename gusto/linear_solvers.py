@@ -4,7 +4,7 @@ from firedrake import split, LinearVariationalProblem, \
     div, dx, jump, avg, dS_v, dS_h, ds_v, ds_t, ds_b, inner, dot, grad, \
     Function, VectorSpaceBasis, BrokenElement, FunctionSpace, MixedFunctionSpace, \
     assemble, LinearSolver, Tensor, AssembledVector
-from firedrake.solving_utils import flatten_parameters
+from firedrake.petsc import flatten_parameters
 from firedrake.parloops import par_loop, READ, INC
 from pyop2.profiling import timed_function, timed_region
 
@@ -470,13 +470,17 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
         u_, rho_ = self.urho.split()
 
         # Split operators for two-stage reconstruction
-        A00 = A.block[0, 0]
-        A01 = A.block[0, 1]
-        A10 = A.block[1, 0]
-        A11 = A.block[1, 1]
-        K0 = K.block[0, 0]
-        Ru = X_r.block[0]
-        Rrho = X_r.block[1]
+        _A = A.blocks
+        _K = K.blocks
+        _Xr = X_r.blocks
+
+        A00 = _A[0, 0]
+        A01 = _A[0, 1]
+        A10 = _A[1, 0]
+        A11 = _A[1, 1]
+        K0 = _K[0, 0]
+        Ru = _Xr[0]
+        Rrho = _Xr[1]
         lambda_vec = AssembledVector(self.lambdar)
 
         # rho reconstruction
