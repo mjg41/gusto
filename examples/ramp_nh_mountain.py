@@ -4,6 +4,7 @@ from firedrake import FunctionSpace, as_vector, \
     SpatialCoordinate, exp, pi, cos, Function, conditional, Mesh, sin, op2
 import sys
 
+
 dt = 5.0
 t_ramp = 120
 
@@ -11,6 +12,8 @@ if '--running-tests' in sys.argv:
     tmax = dt
 else:
     tmax = 9000.
+
+t = 0
 
 if '--hybridization' in sys.argv:
     hybridization = True
@@ -39,15 +42,13 @@ dirname = 'ramp_nh_mountain'
 if smooth_z:
     dirname += '_smootherz'
     zh = 5000.
-    xexpr = as_vector([x, conditional(z < zh, z + cos(0.5*pi*z/zh)**6*zs, z)])
+    xexpr = as_vector([x, conditional(z < zh,(t**2)/(t_ramp**2)*( z + cos(0.5*pi*z/zh)**6*zs), z)])
 else:
-    xexpr = as_vector([x, z + ((H-z)/H)*zs])
-
-mesh = Mesh.coordinates.interpolate(xexpr)
+    xexpr = as_vector([x,(t**2)/(t_ramp**2)*( z + ((H-z)/H)*zs)])
 
 # sponge function
-W_DG = FunctionSpace(mesh, "DG", 2)
-x, z = SpatialCoordinate(mesh)
+W_DG = FunctionSpace(ext_mesh, "DG", 2)
+x, z = SpatialCoordinate(ext_mesh)
 zc = H-10000.
 mubar = 0.15/dt
 mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
@@ -67,7 +68,7 @@ parameters = CompressibleParameters(g=9.80665, cp=1004.)
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber(), VelocityZ()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(ext_mesh, vertical_degree=1, horizontal_degree=1,
               family="CG",
               sponge_function=mu,
               timestepping=timestepping,
@@ -189,6 +190,6 @@ stepper = CrankNicolson(state, advected_fields, linear_solver,
 
 while t < t_ramp:
     stepper.run(t, dt+t) 
-    mesh = mesh*(t**2)/(t_ramp**2)
+    mesh.coordinates.interpolate(xexpr)
     t += dt
  
