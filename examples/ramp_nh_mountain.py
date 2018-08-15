@@ -3,6 +3,7 @@ from firedrake import FunctionSpace, as_vector, \
     VectorFunctionSpace, PeriodicIntervalMesh, ExtrudedMesh, File,\
     SpatialCoordinate, exp, pi, cos, Function, conditional, Mesh, sin, op2, Constant
 import sys
+import numpy as np
 
 dt = 5.0
 t_ramp = 120
@@ -70,7 +71,7 @@ diagnostic_fields = [CourantNumber(), VelocityZ()]
 
 state = State(mesh, vertical_degree=1, horizontal_degree=1,
               family="CG",
-#               sponge_function=mu,
+              sponge_function=mu,
               timestepping=timestepping,
               output=output,
               parameters=parameters,
@@ -124,13 +125,12 @@ piparams = {'pc_type': 'fieldsplit',
                                            'sub_pc_type': 'ilu'}}}
 Pi = Function(Vr)
 rho_b = Function(Vr)
-compressible_hydrostatic_balance(state, theta_b, rho_b,
-                                 params=piparams)
+compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, solve_for_rho=True)
+pi_top = Pi.at(np.array([L/2., H]))
 
 theta0.assign(theta_b)
 rho0.assign(rho_b)
 u0.project(as_vector([10.0, 0.0]))
-remove_initial_w(u0, state.Vv)
 
 state.initialise([('u', u0),
                   ('rho', rho0),
@@ -166,16 +166,21 @@ stepper = CrankNicolson(state, advected_fields, linear_solver,
 
 outfile = File("test_mountain.pvd")
 t_val = 0
-stepper.run(t_val, dt+t_val)
-mesh.coordinates.interpolate(xexpr)
-t_val += dt
-t.assign(t_val)
+pickup = False
+
+recompute_balance = False
+
 while t_val < t_ramp:
-    stepper.run(t=0., tmax=t_val+dt, pickup=True) 
+    stepper.run(t=0., tmax=t_val+dt, pickup=pickup)
+    outfile.write(*state.to_dump)
     mesh.coordinates.interpolate(xexpr)
+    if recompute_balance:
+        compressible_hydrostatic_balance(state, theta_b, rho_b, top=True, pi_boundary=pi_top, solve_for_rho=True)
+        state.set_reference_profiles([('rho', rho_b),
+                                      ('theta', theta_b)])
     t_val += dt
     t.assign(t_val)
-    outfile.write(*state.to_dump)
+    pickup = True
 
 stepper.run(t=0., tmax=tmax+t_ramp, pickup=True) 
 
