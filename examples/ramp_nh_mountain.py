@@ -1,9 +1,9 @@
 from gusto import *
 from firedrake import FunctionSpace, as_vector, \
-    VectorFunctionSpace, PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, exp, pi, cos, Function, conditional, Mesh, sin, op2
+    VectorFunctionSpace, PeriodicIntervalMesh, ExtrudedMesh, File,\
+    SpatialCoordinate, exp, pi, cos, Function, conditional, Mesh, sin, op2, Constant
 import sys
-
+import numpy as np
 
 dt = 5.0
 t_ramp = 120
@@ -13,7 +13,7 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 9000.
 
-t = 0
+t = Constant(0)
 
 if '--hybridization' in sys.argv:
     hybridization = True
@@ -27,13 +27,13 @@ m = PeriodicIntervalMesh(columns, L)
 
 # build volume mesh
 H = 35000.  # Height position of the model top
-ext_mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
-Vc = VectorFunctionSpace(ext_mesh, "DG", 2)
-coord = SpatialCoordinate(ext_mesh)
+mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
+Vc = VectorFunctionSpace(mesh, "DG", 2)
+coord = SpatialCoordinate(mesh)
 x = Function(Vc).interpolate(as_vector([coord[0], coord[1]]))
 a = 1000.
 xc = L/2.
-x, z = SpatialCoordinate(ext_mesh)
+x, z = SpatialCoordinate(mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
@@ -42,13 +42,13 @@ dirname = 'ramp_nh_mountain'
 if smooth_z:
     dirname += '_smootherz'
     zh = 5000.
-    xexpr = as_vector([x, conditional(z < zh,(t**2)/(t_ramp**2)*( z + cos(0.5*pi*z/zh)**6*zs), z)])
+    xexpr = as_vector([x, conditional(z < zh,( z + (t**2)/(t_ramp**2)*cos(0.5*pi*z/zh)**6*zs), z)])
 else:
-    xexpr = as_vector([x,(t**2)/(t_ramp**2)*( z + ((H-z)/H)*zs)])
+    xexpr = as_vector([x,( z + (t**2)/(t_ramp**2)*((H-z)/H)*zs)])
 
 # sponge function
-W_DG = FunctionSpace(ext_mesh, "DG", 2)
-x, z = SpatialCoordinate(ext_mesh)
+W_DG = FunctionSpace(mesh, "DG", 2)
+x, z = SpatialCoordinate(mesh)
 zc = H-10000.
 mubar = 0.15/dt
 mu_top = conditional(z <= zc, 0.0, mubar*sin((pi/2.)*(z-zc)/(H-zc))**2)
@@ -60,7 +60,8 @@ if hybridization:
     dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
-                          dumpfreq=18,
+                          dumpfreq=1,
+                          log_level=INFO,
                           dumplist=['u','theta', 'rho'],
                           perturbation_fields=['theta', 'rho'])
 
@@ -68,7 +69,7 @@ parameters = CompressibleParameters(g=9.80665, cp=1004.)
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber(), VelocityZ()]
 
-state = State(ext_mesh, vertical_degree=1, horizontal_degree=1,
+state = State(mesh, vertical_degree=1, horizontal_degree=1,
               family="CG",
               sponge_function=mu,
               timestepping=timestepping,
@@ -124,37 +125,12 @@ piparams = {'pc_type': 'fieldsplit',
                                            'sub_pc_type': 'ilu'}}}
 Pi = Function(Vr)
 rho_b = Function(Vr)
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi,
-                                 top=True, pi_boundary=0.5,
-                                 params=piparams)
-
-
-def minimum(f):
-    fmin = op2.Global(1, [1000], dtype=float)
-    op2.par_loop(op2.Kernel("""
-void minify(double *a, double *b) {
-    a[0] = a[0] > fabs(b[0]) ? fabs(b[0]) : a[0];
-}
-""", "minify"), f.dof_dset.set, fmin(op2.MIN), f.dat(op2.READ))
-    return fmin.data[0]
-
-
-p0 = minimum(Pi)
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi,
-                                 top=True,
-                                 params=piparams)
-p1 = minimum(Pi)
-alpha = 2.*(p1-p0)
-beta = p1-alpha
-pi_top = (1.-beta)/alpha
-compressible_hydrostatic_balance(state, theta_b, rho_b, Pi,
-                                 top=True, pi_boundary=pi_top, solve_for_rho=True,
-                                 params=piparams)
+compressible_hydrostatic_balance(state, theta_b, rho_b, Pi, solve_for_rho=True)
+pi_top = Pi.at(np.array([L/2., H]))
 
 theta0.assign(theta_b)
 rho0.assign(rho_b)
 u0.project(as_vector([10.0, 0.0]))
-remove_initial_w(u0, state.Vv)
 
 state.initialise([('u', u0),
                   ('rho', rho0),
@@ -188,8 +164,23 @@ compressible_forcing = CompressibleForcing(state)
 stepper = CrankNicolson(state, advected_fields, linear_solver,
                         compressible_forcing)
 
-while t < t_ramp:
-    stepper.run(t, dt+t) 
+outfile = File("test_mountain.pvd")
+t_val = 0
+pickup = False
+
+recompute_balance = False
+
+while t_val < t_ramp:
+    stepper.run(t=0., tmax=t_val+dt, pickup=pickup)
+    outfile.write(*state.to_dump)
     mesh.coordinates.interpolate(xexpr)
-    t += dt
- 
+    if recompute_balance:
+        compressible_hydrostatic_balance(state, theta_b, rho_b, top=True, pi_boundary=pi_top, solve_for_rho=True)
+        state.set_reference_profiles([('rho', rho_b),
+                                      ('theta', theta_b)])
+    t_val += dt
+    t.assign(t_val)
+    pickup = True
+
+stepper.run(t=0., tmax=tmax+t_ramp, pickup=True) 
+
