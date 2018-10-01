@@ -229,9 +229,10 @@ class AdvectionDiffusion(BaseTimestepper):
     """
 
     def __init__(self, state, advected_fields=None,
-                 diffused_fields=None, physics_list=None):
+                 diffused_fields=None, physics_list=None,
+                 prescribed_fields=None):
 
-        super(AdvectionDiffusion, self).__init__(state, advected_fields, diffused_fields, physics_list)
+        super(AdvectionDiffusion, self).__init__(state, advected_fields, diffused_fields, physics_list, prescribed_fields)
 
         # we need active fields to have two states: xn and xnp1.
         # for active fields, the advected state is in xnp1
