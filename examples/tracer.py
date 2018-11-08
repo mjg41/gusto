@@ -1,7 +1,7 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, Constant, DirichletBC, cos, pi, Function, sqrt, \
-    conditional
+from firedrake import (PeriodicIntervalMesh, ExtrudedMesh,
+                       SpatialCoordinate, Constant, DirichletBC,
+                       cos, pi, Function, sqrt, conditional)
 import sys
 
 if '--running-tests' in sys.argv:
@@ -107,9 +107,11 @@ for delta, dt in res_dt.items():
                                  equation_form="advective")
     else:
         thetaeqn = EmbeddedDGAdvection(state, Vt,
-                                       equation_form="advective")
+                                       equation_form="advective",
+                                       options=EmbeddedDGOptions())
         watereqn = EmbeddedDGAdvection(state, Vt,
-                                       equation_form="advective")
+                                       equation_form="advective",
+                                       options=EmbeddedDGOptions())
     advected_fields = []
     advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
     advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))

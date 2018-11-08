@@ -1,9 +1,9 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, conditional, cos, pi, sqrt, \
-    TestFunction, dx, TrialFunction, Constant, Function, \
-    LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
-    FunctionSpace, BrokenElement, VectorFunctionSpace
+from firedrake import (PeriodicIntervalMesh, ExtrudedMesh,
+                       SpatialCoordinate, conditional, cos, pi, sqrt,
+                       TestFunction, dx, TrialFunction, Constant, Function,
+                       LinearVariationalProblem, LinearVariationalSolver, DirichletBC,
+                       FunctionSpace, BrokenElement, VectorFunctionSpace)
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
@@ -68,19 +68,7 @@ theta0 = state.fields("theta")
 Vu = u0.function_space()
 Vt = theta0.function_space()
 Vr = rho0.function_space()
-x = SpatialCoordinate(mesh)
-
-if recovered:
-    VDG1 = FunctionSpace(mesh, "DG", 1)
-    VCG1 = FunctionSpace(mesh, "CG", 1)
-    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
-    Vu_DG1 = VectorFunctionSpace(mesh, "DG", 1)
-    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
-    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
-
-    u_spaces = (Vu_DG1, Vu_CG1, Vu_brok)
-    rho_spaces = (VDG1, VCG1, Vr)
-    theta_spaces = (VDG1, VCG1, Vt_brok)
+x, z = SpatialCoordinate(mesh)
 
 # Define constant theta_e and water_t
 Tsurf = 300.0
@@ -97,10 +85,10 @@ xc = L / 2
 zc = 2000.
 rc = 2000.
 Tdash = 2.0
-theta_pert = Function(Vt).interpolate(conditional(sqrt((x[0] - xc) ** 2 + (x[1] - zc) ** 2) > rc,
-                                                  0.0, Tdash *
-                                                  (cos(pi * sqrt(((x[0] - xc) / rc) ** 2 + ((x[1] - zc) / rc) ** 2) / 2.0))
-                                                  ** 2))
+r = sqrt((x - xc) ** 2 + (z - zc) ** 2)
+theta_pert = Function(Vt).interpolate(conditional(r > rc,
+                                                  0.0,
+                                                  Tdash * (cos(pi * r / (2.0 * rc))) ** 2))
 
 # define initial theta
 theta0.assign(theta_b * (theta_pert / 300.0 + 1.0))
@@ -123,9 +111,26 @@ state.set_reference_profiles([('rho', rho_b),
 
 # Set up advection schemes
 if recovered:
-    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", recovered_spaces=u_spaces)
-    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", recovered_spaces=rho_spaces)
-    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", recovered_spaces=theta_spaces)
+    VDG1 = FunctionSpace(mesh, "DG", 1)
+    VCG1 = FunctionSpace(mesh, "CG", 1)
+    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
+    Vu_DG1 = VectorFunctionSpace(mesh, "DG", 1)
+    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
+    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
+
+    u_opts = RecoveredOptions(embedding_space=Vu_DG1,
+                              recovered_space=Vu_CG1,
+                              broken_space=Vu_brok)
+    rho_opts = RecoveredOptions(embedding_space=VDG1,
+                                recovered_space=VCG1,
+                                broken_space=Vr)
+    theta_opts = RecoveredOptions(embedding_space=VDG1,
+                                  recovered_space=VCG1,
+                                  broken_space=Vt_brok)
+
+    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", options=u_opts)
+    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", options=rho_opts)
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=theta_opts)
 else:
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
@@ -137,7 +142,7 @@ if limit:
     if recovered:
         limiter = VertexBasedLimiter(VDG1)
     else:
-        limiter = ThetaLimiter(thetaeqn)
+        limiter = ThetaLimiter(Vt)
 else:
     limiter = None
 
