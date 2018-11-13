@@ -297,7 +297,9 @@ class Coalescence(Physics):
         coalesce_rate = Function(Vt)
 
         # adjust coalesce rate so negative concentration doesn't occur
-        self.lim_coalesce_rate = Interpolator(min_value(dot_r, self.water_c / dt),
+        self.lim_coalesce_rate = Interpolator(conditional(dot_r < 0.0,
+                                                          Constant(0.0),
+                                                          min_value(dot_r, self.water_c / dt)),
                                               coalesce_rate)
 
         # tell the prognostic fields what to update to
@@ -338,7 +340,7 @@ class Evaporation(Physics):
 
         # make rho variables
         # we recover rho into theta space
-        if state.vertical_degree == 0 and state.mesh.geometric_dimension == 2:
+        if state.vertical_degree == 0 and state.mesh.geometric_dimension() == 2:
             boundary_method = 'physics'
         else:
             boundary_method = None
@@ -382,8 +384,7 @@ class Evaporation(Physics):
                       / (rho_averaged * (f + g / (p * w_sat))))
 
         # make evap_rate function, needs to be the same for all updates in one time step
-        evap_rate = Function(Vt)
-        evap_rate = state.fields('evap_rate', Vt)
+        evap_rate = Function(Vt).assign(0.0)
 
         # adjust evap rate so negative rain doesn't occur
         self.lim_evap_rate = Interpolator(conditional(dot_r_evap < 0,
