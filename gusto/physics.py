@@ -383,6 +383,7 @@ class Evaporation(Physics):
 
         # make evap_rate function, needs to be the same for all updates in one time step
         evap_rate = Function(Vt)
+        evap_rate = state.fields('evap_rate', Vt)
 
         # adjust evap rate so negative rain doesn't occur
         self.lim_evap_rate = Interpolator(conditional(dot_r_evap < 0,
