@@ -190,7 +190,8 @@ class State(object):
                  parameters=None,
                  diagnostics=None,
                  fieldlist=None,
-                 diagnostic_fields=None):
+                 diagnostic_fields=None,
+                 extra_bcs=None):
 
         self.family = family
         self.vertical_degree = vertical_degree
@@ -216,6 +217,10 @@ class State(object):
             self.diagnostic_fields = diagnostic_fields
         else:
             self.diagnostic_fields = []
+        if extra_bcs is not None:
+            self.extra_bcs = extra_bcs
+        else:
+            self.extra_bcs = []
 
         # The mesh
         self.mesh = mesh

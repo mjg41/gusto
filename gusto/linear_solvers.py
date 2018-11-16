@@ -194,8 +194,9 @@ class CompressibleSolver(TimesteppingSolver):
         self.urho = Function(M)
 
         # Boundary conditions (assumes extruded mesh)
-        bcs = [DirichletBC(M.sub(0), 0.0, "bottom"),
-               DirichletBC(M.sub(0), 0.0, "top")]
+        bcs = self.state.extra_bcs
+        bcs.append(DirichletBC(M.sub(0), 0.0, "bottom"))
+        bcs.append(DirichletBC(M.sub(0), 0.0, "top"))
 
         # Solver for u, rho
         urho_problem = LinearVariationalProblem(
@@ -530,8 +531,9 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
                                                                        'pc_sub_type': 'ilu'},
                                                     options_prefix='thetabacksubstitution')
 
-        self.bcs = [DirichletBC(Vu, 0.0, "bottom"),
-                    DirichletBC(Vu, 0.0, "top")]
+        self.bcs = self.state.extra_bcs
+        self.bcs.append(DirichletBC(Vu, 0.0, "bottom"))
+        self.bcs.append(DirichletBC(Vu, 0.0, "top"))
 
     @timed_function("Gusto:LinearSolve")
     def solve(self):
@@ -664,8 +666,9 @@ class IncompressibleSolver(TimesteppingSolver):
         self.up = Function(M)
 
         # Boundary conditions (assumes extruded mesh)
-        bcs = [DirichletBC(M.sub(0), 0.0, "bottom"),
-               DirichletBC(M.sub(0), 0.0, "top")]
+        bcs = self.state.extra_bcs
+        bcs.append(DirichletBC(M.sub(0), 0.0, "bottom"))
+        bcs.append(DirichletBC(M.sub(0), 0.0, "top"))
 
         # Solver for u, p
         up_problem = LinearVariationalProblem(aeqn, Leqn, self.up, bcs=bcs)

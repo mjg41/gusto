@@ -55,13 +55,14 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         """
         unp1 = self.state.xnp1.split()[0]
 
+        bcs = self.state.extra_bcs
         if unp1.function_space().extruded:
             M = unp1.function_space()
-            bcs = [DirichletBC(M, 0.0, "bottom"),
-                   DirichletBC(M, 0.0, "top")]
+            bcs.append(DirichletBC(M, 0.0, "bottom"))
+            bcs.append(DirichletBC(M, 0.0, "top"))
 
-            for bc in bcs:
-                bc.apply(unp1)
+        for bc in bcs:
+            bc.apply(unp1)
 
     def setup_timeloop(self, t, tmax, pickup):
         """

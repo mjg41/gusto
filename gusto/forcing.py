@@ -105,11 +105,11 @@ class Forcing(object, metaclass=ABCMeta):
     def _build_forcing_solvers(self):
         a = self.mass_term()
         L = self.forcing_term()
+        bcs_list = self.state.extra_bcs
         if self.Vu.extruded:
-            bcs = [DirichletBC(self.Vu, 0.0, "bottom"),
-                   DirichletBC(self.Vu, 0.0, "top")]
-        else:
-            bcs = None
+            bcs_list.append(DirichletBC(self.Vu, 0.0, "bottom"))
+            bcs_list.append(DirichletBC(self.Vu, 0.0, "top"))
+        bcs = None if len(bcs_list) == 0 else bcs_list
 
         u_forcing_problem = LinearVariationalProblem(
             a, L, self.uF, bcs=bcs
