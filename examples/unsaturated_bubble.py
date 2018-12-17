@@ -43,7 +43,7 @@ m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=h/nlayers)
 degree = 0 if recovered else 1
 
-dirname = 'unsaturated_bubble'
+dirname = 'unsaturated_bubble_nolimit'
 if recovered:
     dirname += '_recovered'
 if hybridization:
@@ -236,8 +236,8 @@ euler_poincare = False if recovered else True
 advected_fields = [u_advection,
                    ('rho', SSPRK3(state, rho0, rhoeqn)),
                    ('theta', SSPRK3(state, theta0, thetaeqn)),
-                   ('water_v', SSPRK3(state, water_v0, thetaeqn, limiter=limiter)),
-                   ('water_c', SSPRK3(state, water_c0, thetaeqn, limiter=limiter)),
+                   ('water_v', SSPRK3(state, water_v0, thetaeqn)),
+                   ('water_c', SSPRK3(state, water_c0, thetaeqn)),
                    ('rain', SSPRK3(state, rain0, thetaeqn, limiter=limiter))]
 
 linear_solver = HybridizedCompressibleSolver(state, moisture=moisture) if hybridization else CompressibleSolver(state, moisture=moisture)
