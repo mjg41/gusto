@@ -145,8 +145,8 @@ class Boundary_Recoverer(object):
             raise ValueError("Specified boundary_method % not valid" % self.method)
 
         VuDG1 = VectorFunctionSpace(VDG0.mesh(), "DG", 1)
-        x, z = SpatialCoordinate(VDG0.mesh())
-        self.coords = Function(VuDG1).project(as_vector([x, z]))
+        x = SpatialCoordinate(VDG0.mesh())
+        self.coords = Function(VuDG1).project(x)
         self.interpolator = Interpolator(self.v1, self.v_out)
 
         # check that we're using quads on extruded mesh -- otherwise it will fail!
