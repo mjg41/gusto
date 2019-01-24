@@ -11,6 +11,7 @@ from firedrake import MixedFunctionSpace, TrialFunctions, TestFunctions, \
     NonlinearVariationalProblem, NonlinearVariationalSolver, split, solve, \
     sin, cos, sqrt, asin, atan_2, as_vector, Min, Max, FunctionSpace, BrokenElement, errornorm
 from gusto import thermodynamics
+from gusto.configuration import logger
 from gusto.recovery import Recoverer
 
 
@@ -122,7 +123,7 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
 
     n = FacetNormal(state.mesh)
 
-    cp = Constant(state.parameters.cp)
+    cp = state.parameters.cp
 
     # add effect of density of water upon theta
     theta = theta0
@@ -145,7 +146,7 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
     arhs = -cp*inner(dv, n)*theta*pi_boundary*bmeasure
 
     # Possibly make g vary with spatial coordinates?
-    g = Constant(state.parameters.g)
+    g = state.parameters.g
 
     arhs -= g*inner(dv, state.k)*dx
 
@@ -159,13 +160,13 @@ def compressible_hydrostatic_balance(state, theta0, rho0, pi0=None,
                   'pc_type': 'python',
                   'mat_type': 'matfree',
                   'pc_python_type': 'gusto.VerticalHybridizationPC',
-                  'vert_hybridization': {'ksp_type': 'bcgs',
+                  'vert_hybridization': {'ksp_type': 'gmres',
                                          'pc_type': 'gamg',
                                          'pc_gamg_sym_graph': True,
                                          'ksp_rtol': 1e-8,
                                          'ksp_atol': 1e-8,
                                          'mg_levels': {'ksp_type': 'richardson',
-                                                       'ksp_max_it': 3,
+                                                       'ksp_max_it': 5,
                                                        'pc_type': 'bjacobi',
                                                        'sub_pc_type': 'ilu'}}}
 
@@ -315,7 +316,7 @@ def saturated_hydrostatic_balance(state, theta_e, water_t, pi0=None,
 
     VDG = state.spaces("DG")
     if any(deg > 2 for deg in VDG.ufl_element().degree()):
-        state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
+        logger.warning("default quadrature degree most likely not sufficient for this degree element")
 
     theta0.interpolate(theta_e)
     water_v0.interpolate(water_t)
@@ -425,7 +426,7 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
 
     VDG = state.spaces("DG")
     if any(deg > 2 for deg in VDG.ufl_element().degree()):
-        state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
+        logger.warning("default quadrature degree most likely not sufficient for this degree element")
 
     # apply first guesses
     theta0.assign(theta_d * 1.01)

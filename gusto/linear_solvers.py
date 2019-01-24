@@ -3,12 +3,12 @@ from firedrake import (split, LinearVariationalProblem, Constant,
                        TestFunction, TrialFunction, lhs, rhs, DirichletBC, FacetNormal,
                        div, dx, jump, avg, dS_v, dS_h, ds_v, ds_t, ds_b, inner, dot, grad,
                        Function, VectorSpaceBasis, BrokenElement, FunctionSpace, MixedFunctionSpace,
-                       assemble, LinearSolver, Tensor, AssembledVector)
+                       assemble, LinearSolver)
 from firedrake.petsc import flatten_parameters
 from firedrake.parloops import par_loop, READ, INC
 from pyop2.profiling import timed_function, timed_region
 
-from gusto.configuration import DEBUG
+from gusto.configuration import logger, DEBUG
 from gusto import thermodynamics
 from abc import ABCMeta, abstractmethod, abstractproperty
 
@@ -42,7 +42,7 @@ class TimesteppingSolver(object, metaclass=ABCMeta):
                 solver_parameters = p
             self.solver_parameters = solver_parameters
 
-        if state.output.log_level == DEBUG:
+        if logger.isEnabledFor(DEBUG):
             self.solver_parameters["ksp_monitor_true_residual"] = True
 
         # setup the solver
@@ -109,7 +109,7 @@ class CompressibleSolver(TimesteppingSolver):
         else:
             dgspace = state.spaces("DG")
             if any(deg > 2 for deg in dgspace.ufl_element().degree()):
-                state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
+                logger.warning("default quadrature degree most likely not sufficient for this degree element")
             self.quadrature_degree = (5, 5)
 
         super().__init__(state, solver_parameters, overwrite_solver_parameters)
@@ -299,7 +299,6 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
                          'pc_python_type': 'firedrake.SCPC',
                          'pc_sc_eliminate_fields': '0, 1',
                          'condensed_field': {'ksp_type': 'fgmres',
-                                             'ksp_monitor_true_residual': True,
                                              'ksp_rtol': 1.0e-8,
                                              'ksp_atol': 1.0e-8,
                                              'ksp_max_it': 100,
@@ -322,8 +321,12 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
         else:
             dgspace = state.spaces("DG")
             if any(deg > 2 for deg in dgspace.ufl_element().degree()):
-                state.logger.warning("default quadrature degree most likely not sufficient for this degree element")
+                logger.warning("default quadrature degree most likely not sufficient for this degree element")
             self.quadrature_degree = (5, 5)
+
+        # Turn monitor on for the trace system when running in debug mode
+        if logger.isEnabledFor(DEBUG):
+            self.solver_parameters["condensed_field"]["ksp_monitor_true_residual"] = True
 
         super().__init__(state, solver_parameters, overwrite_solver_parameters)
 
@@ -449,7 +452,7 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
                # constraint equation to enforce continuity of the velocity
                # (coefficients added to make the trace coupling symmetric
                # with the terms picked up in the momentum equation)
-               + beta_cp*dl('+')*jump(u, n=n)*(dS_vp + dS_hp)
+               + beta_cp*dl('+')*jump(thetabar_w*u, n=n)*(dS_vp + dS_hp)
                + beta_cp*dl*dot(thetabar_w*u, n)*ds_vp
                + beta_cp*dl*dot(thetabar_w*u, n)*ds_tbp)
 
@@ -509,8 +512,8 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
         # Store boundary conditions for the div-conforming velocity to apply
         # post-solve
         self.bcs = self.state.extra_bcs
-        self.bcs.append(DirichletBC(Vu, 0.0, "bottom"))
-        self.bcs.append(DirichletBC(Vu, 0.0, "top"))
+        self.bcs.append(DirichletBC(Vu, Constant(0.0), "bottom"))
+        self.bcs.append(DirichletBC(Vu, Constant(0.0), "top"))
 
     @timed_function("Gusto:LinearSolve")
     def solve(self):
