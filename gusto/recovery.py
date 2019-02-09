@@ -275,9 +275,8 @@ class Boundary_Recoverer(object):
             if (sum_V1_ext > 0) {
             /* do gaussian elimination to find constants in linear expansion */
             /* trying to solve A*a = f for a, where A is a matrix */
-            float A[4][4], a[4], f[4], c, trial_a[4];
-            int index[4] = {0, 1, 2, 3};
-            float A_max, temp_A, temp_f, temp_i;
+            float A[4][4], a[4], f[4], c;
+            float A_max, temp_A, temp_f;
             int i_max, i, j, k;
             int n = 4;
 
@@ -306,9 +305,6 @@ class Boundary_Recoverer(object):
             temp_f = f[i];
             f[i] = f[i_max];
             f[i_max] = temp_f;
-            temp_i = index[i];
-            index[i] = index[i_max];
-            index[i_max] = temp_i;
             for (k=i; k<n; k++) {
             temp_A = A[i][k];
             A[i][k] = A[i_max][k];
@@ -324,15 +320,11 @@ class Boundary_Recoverer(object):
             /* do back-substitution to acquire solution */
             for (i=0; i<n; i++){
             j = n-i-1;
-            trial_a[j] = f[j];
+            a[j] = f[j];
             for(k=j+1; k<=n; ++k) {
-            trial_a[j] -= A[j][k] * trial_a[k];}
-            trial_a[j] = trial_a[j] / A[j][j];
+            a[j] -= A[j][k] * a[k];}
+            a[j] = a[j] / A[j][j];
             }
-
-            /* the solution had swapped rows, return them to correct rows */
-            for (i=0; i<n; i++) {
-            a[i] = trial_a[index[i]];}
 
             /* extrapolate solution using new coordinates */
             for (i=0; i<n; i++) {
@@ -383,11 +375,6 @@ class Boundary_Recoverer(object):
                            "RIGHT": (self.right, READ)},
                      iterate=ON_TOP)
         else:
-            # print('OUTPUT BEFORE RECOVERY')
-            # for (i, j, k) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:]):
-            #     if i[0] >= 0.5 and i[0] <= 0.6 and i[1] >= 0.9:
-            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f' % (i[0], i[1], j[0], j[1], k))
-
             par_loop(self.boundary_kernel, dx,
                      args={"DG1": (self.v_DG1, RW),
                            "OLD_COORDS": (self.orig_coords, READ),
@@ -395,9 +382,9 @@ class Boundary_Recoverer(object):
                            "EXT_V1" : (self.ext_DG1, READ)})
             
             # print('OUTPUT AFTER RECOVERY')
-            # for (i, j, k, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
-            #     if i[0] >= 0.45 and i[0] <= 0.65 and i[1] >= 0.89:
-            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.2f' % (i[0], i[1], j[0], j[1], k, ext))
+            # for (i, j, k, l, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], old_v_DG1.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
+            #     if (i[0] >= 0.89 or i[0] <= 0.11) and (i[1] >= 0.89 or i[1] <= 0.11):
+            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.4f %.2f' % (i[0], i[1], j[0], j[1], k, l, ext))
 
 
 class Recoverer(object):
