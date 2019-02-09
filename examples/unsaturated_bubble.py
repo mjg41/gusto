@@ -43,7 +43,7 @@ m = PeriodicIntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=h/nlayers)
 degree = 0 if recovered else 1
 
-dirname = 'unsaturated_bubble_nolimit'
+dirname = 'unsaturated_bubble'
 if recovered:
     dirname += '_recovered'
 if hybridization:

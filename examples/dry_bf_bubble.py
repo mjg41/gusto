@@ -54,7 +54,8 @@ if limit:
 output = OutputParameters(dirname=dirname,
                           dumpfreq=20,
                           dumplist=['u'],
-                          perturbation_fields=['theta'])
+                          perturbation_fields=['theta'],
+                          log_level='INFO')
 
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
@@ -130,10 +131,12 @@ if recovered:
 
     u_opts = RecoveredOptions(embedding_space=Vu_DG1,
                               recovered_space=Vu_CG1,
-                              broken_space=Vu_brok)
+                              broken_space=Vu_brok,
+                              boundary_method='vector')
     rho_opts = RecoveredOptions(embedding_space=VDG1,
                                 recovered_space=VCG1,
-                                broken_space=Vr)
+                                broken_space=Vr,
+                                boundary_method='scalar')
     theta_opts = RecoveredOptions(embedding_space=VDG1,
                                   recovered_space=VCG1,
                                   broken_space=Vt_brok)

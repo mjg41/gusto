@@ -5,7 +5,7 @@ from gusto.configuration import logger
 from firedrake import (expression, function, Function, FunctionSpace, Projector,
                        VectorFunctionSpace, SpatialCoordinate, as_vector, Constant,
                        dx, Interpolator, quadrilateral, BrokenElement, interval,
-                       TensorProductElement, FiniteElement, DirichletBC)
+                       TensorProductElement, FiniteElement, DirichletBC, conditional)
 from firedrake.utils import cached_property
 from firedrake.parloops import par_loop, READ, INC, RW
 from pyop2 import ON_TOP, ON_BOTTOM
@@ -99,45 +99,37 @@ class Boundary_Recoverer(object):
     set of spaces, and only on a `PeriodicIntervalMesh` or
     'PeriodicUnitIntervalMesh` that has been extruded.
 
-    :arg v1: the continuous function after the first recovery
+    :arg v_CG1: the continuous function after the first recovery
              is performed. Should be in CG1. This is correct
              on the interior of the domain.
-    :arg v_out: the function to be output. Should be in DG1.
-    :arg v1_ext: a CG1 function denoting which CG1 DOFs are
-                  internal and which are external. Only necessary
-                  with dynamics method.
-    :arg v0_ext: a DG0 function denoting the number of exterior DOFs
-                  per cell in the original field (pre-recovery).
-                  This argument is only necessary when used with the
-                  dynamics method.
+    :arg v_DG1: the function to be output. Should be in DG1.
+    :arg ext_DG1: a field in DG1 which is 1 on exterior DOFs but
+                  0 on interior nodes.
+    :arg ext_V0_CG1: a field in CG1 that is 1 for the exterior DOFs of
+                     the original space but 0 on interior nodes.
     :arg method: string giving the method used for the recovery.
              Valid options are 'dynamics' and 'physics'.
     """
 
-    def __init__(self, v1, v_out, v1_ext=None, v0_ext=None, method='physics'):
+    def __init__(self, v_CG1, v_DG1, ext_DG1, ext_V0_CG1, method='physics'):
 
         #import pdb; pdb.set_trace()
 
-        self.v_out = v_out
-        self.v1 = v1
-        self.v1_ext = v1_ext
-        self.v0_ext = v0_ext
+        self.v_DG1 = v_DG1
+        self.v_CG1 = v_CG1
+        self.ext_DG1 = ext_DG1
         
         self.method = method
-        mesh = v1.function_space().mesh()
+        mesh = v_CG1.function_space().mesh()
         VDG0 = FunctionSpace(mesh, "DG", 0)
         VCG1 = FunctionSpace(mesh, "CG", 1)
 
         # # check function spaces of functions -- this only works for a particular set
         if self.method == 'dynamics':
-            if v1.function_space() != FunctionSpace(mesh, "CG", 1):
+            if v_CG1.function_space() != VCG1:
                 raise NotImplementedError("This boundary recovery method requires v1 to be in CG1.")
-            if v_out.function_space() != FunctionSpace(mesh, "DG", 1):
+            if v_DG1.function_space() != FunctionSpace(mesh, "DG", 1):
                 raise NotImplementedError("This boundary recovery method requires v_out to be in DG1.")
-            if v1_ext.function_space() != FunctionSpace(mesh, "CG", 1):
-                raise ValueError("The v1_ext field should be in CG1.")
-            if v0_ext.function_space() != FunctionSpace(mesh, "DG", 0):
-                raise ValueError("The v0_ext field should be in DG0.")
         elif self.method == 'physics':
             # base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
@@ -148,21 +140,17 @@ class Boundary_Recoverer(object):
             # spaces
             Vtheta = FunctionSpace(mesh, theta_element)
             Vtheta_broken = FunctionSpace(mesh, BrokenElement(theta_element))
-            if v1.function_space() != Vtheta:
-                raise ValueError("This boundary recovery method requires v_in to be in DG0xCG1 TensorProductSpace.")
-            if v_out.function_space() != Vtheta_broken:
-                raise ValueError("This boundary recovery method requires v_out to be in the broken DG0xCG1 TensorProductSpace.")
-            if v1_ext != None:
-                raise ValueError("The physics boundary recovery method should have v1_ext = None.")
-            if v0_ext != None:
-                raise ValueError("The physics boundary recovery method should have v0_ext = None.")
+            if v_CG1.function_space() != Vtheta:
+                raise ValueError("This boundary recovery method requires v_CG1 to be in DG0xCG1 TensorProductSpace.")
+            if v_DG1.function_space() != Vtheta_broken:
+                raise ValueError("This boundary recovery method requires v_DG1 to be in the broken DG0xCG1 TensorProductSpace.")
         else:
             raise ValueError("Specified boundary_method % not valid" % self.method)
 
         VuDG1 = VectorFunctionSpace(VDG0.mesh(), "DG", 1)
         x = SpatialCoordinate(VDG0.mesh())
-        self.coords = Function(VuDG1).project(x)
-        self.interpolator = Interpolator(self.v1, self.v_out)
+        self.orig_coords = Function(VuDG1).project(x)
+        self.interpolator = Interpolator(self.v_CG1, self.v_DG1)
 
         # check that we're using quads on extruded mesh -- otherwise it will fail!
         if not VDG0.extruded and VDG0.ufl_element().cell() != quadrilateral:
@@ -172,99 +160,200 @@ class Boundary_Recoverer(object):
 
         self.right = Function(VDG0)
 
-        if self.method == 'density':
+        if self.method == 'dynamics':
 
             # STRATEGY
             # obtain a coordinate field for all the nodes
-            Vu_orig = VectorFunctionSpace(mesh, BrokenElement(v0.ufl_element()))
-            orig_coords = Function(Vu_orig).project(x)
-            # make a CG2 field that is 1 at exterior nodes and 0 for interior nodes by applying BC
-            VCG2 = FunctionSpace(VDG0.mesh(), "CG", 2)
-            exterior_CG2 = Function(VCG2)
-            boundary_conditions = [DirichletBC(VCG2, Constant(1.0), "top", method="geometric"),
-                                   DirichletBC(VCG2, Constant(1.0), "bottom", method="geometric"),
-                                   DirichletBC(VCG2, Constant(1.0), "on_boundary", method="geometric")]
-            for bc in boundary_conditions:
-                bc.apply(exterior_CG2)
-            # make source field that is 1 for exterior nodes and 0 for interior nodes by interpolating from CG2 field
-            exterior_v0 = Function(v0.function_space()).interpolate(exterior_CG2)
-            # make a CG1 field that is 1 for exterior nodes and 0 for interior nodes by applying BC
-            exterior_v1 = Function(v1.function_space()).interpolate(exterior_CG2)
-            # make a DG0 field that contains the number of exterior nodes per cell for source field
-            # make a DG0 field that contains the number of exterior nodes per cell for CG1 field
-            # make a vector CG1 field for the new coordinates
-            # fill the new vector CG1 field with the location of the corrected coordinates
-                # this will involve determining which situation each cell is (8 diff situations)
-            # run through the recoverd CG1 field. For each cell on the boundary:
-                # use Gaussian elimination to find the constants in a linear approx. using the new coordinates with old values
-                # use the constants in the linear approx. to find the new values at the old coordinates
+            VuCG1 = VectorFunctionSpace(mesh, "CG", 1)
+            VuDG1 = VectorFunctionSpace(mesh, "DG", 1)
+            self.orig_coords = Function(VuDG1).project(x)
+            self.new_coords = Function(VuDG1).project(x)
+
+            coords_kernel_2d = """
+            int nDOF_V1 = %d;
+            int nDOF_V0 = %d;
+            int dim = %d;
+
+            /* find num of ext DOFs in this cell, DG1 */
+            int sum_V1_ext = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* find num of ext DOFs in this cell, CG1 */
+            int sum_V0_ext = 0;
+            for (int i=0; i<nDOF_V0; ++i) {
+            sum_V0_ext += round(EXT_V0[i][0]);}
             
-            # make DG0 field that is one in rightmost cells, but zero otherwise
-            # this is done as the DOF numbering is different in the rightmost cells
-            max_coord = Function(VDG0).interpolate(Constant(np.max(self.coords.dat.data[:, 0])))
+            if (sum_V1_ext == 0){
+            /* do nothing for internal cells */
+            }
+            else if (sum_V1_ext == 2 && sum_V0_ext == 0){
+            /* cells on edge from DG0 */
+            for (int i=0; i<nDOF_V1; ++i){
+            if (round(EXT_V1[i][0]) == 1){
+            float max_dist = 0;
+            for (int j=0; j<nDOF_V1; ++j) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);
+            }
+            dist = pow(dist, 0.5);
+            max_dist = fmax(dist, max_dist);
+            }
+            float min_dist = max_dist;
+            int index = -1;
+            for (int j=0; j<nDOF_V1; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);
+            }
+            dist = pow(dist, 0.5);
+            if (dist <= min_dist) {
+            min_dist = dist;
+            index = j;
+            }}}
+            NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
+            NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
+            }}}
+            else if (sum_V1_ext == 2 && sum_V0_ext == 2){
+            /* do something to new coords */
+            fprintf(stderr, "Wrong number of exterior coords found");}
+            else if (sum_V1_ext == 3 && sum_V0_ext == 0){
+            /* do nothing */ }
+            else if (sum_V1_ext == 3 && sum_V0_ext == 2){
+            /* do something to new coords */
+            fprintf(stderr, "Wrong number of exterior coords found");}
+            else {
+            fprintf(stderr, "Wrong number of exterior coords found");}
+            
+            """ % (self.v_DG1.function_space().finat_element.space_dimension(),
+                   self.v_CG1.function_space().finat_element.space_dimension(),
+                   np.prod(VuDG1.shape))
 
-            right_kernel = """
-            if (fmax(COORDS[0][0], fmax(COORDS[1][0], COORDS[2][0])) == MAX[0][0])
-            RIGHT[0][0] = 1.0;
-            """
-            par_loop(right_kernel, dx,
-                     args={"COORDS": (self.coords, READ),
-                           "MAX": (max_coord, READ),
-                           "RIGHT": (self.right, RW)})
-
-            self.bottom_kernel = """
-            if (RIGHT[0][0] == 1.0)
-            {
-            float x = COORDS[2][0] - COORDS[0][0];
-            float y = COORDS[1][1] - COORDS[0][1];
-            float a = CG1[3][0];
-            float b = CG1[1][0];
-            float c = DG0[0][0];
-            DG1[1][0] = a;
-            DG1[3][0] = b;
-            DG1[2][0] = (1.0 / (pow(x, 2.0) + 4.0 * pow(y, 2.0))) * (-3.0 * a * pow(y, 2.0) - b * pow(x, 2.0) - b * pow(y, 2.0) + 2.0 * c * pow(x, 2.0) + 8.0 * c * pow(y, 2.0));
-            DG1[0][0] = 4.0 * c - b - a - DG1[2][0];
-            }
-            else
-            {
-            float x = COORDS[1][0] - COORDS[3][0];
-            float y = COORDS[3][1] - COORDS[2][1];
-            float a = CG1[1][0];
-            float b = CG1[3][0];
-            float c = DG0[0][0];
-            DG1[3][0] = a;
-            DG1[1][0] = b;
-            DG1[0][0] = (1.0 / (pow(x, 2.0) + 4.0 * pow(y, 2.0))) * (-3.0 * a * pow(y, 2.0) - b * pow(x, 2.0) - b * pow(y, 2.0) + 2.0 * c * pow(x, 2.0) + 8.0 * c * pow(y, 2.0));
-            DG1[2][0] = 4.0 * c - b - a - DG1[0][0];
-            }
+            coords_kernel_3d = """
+            if sum(v1_ext) == 0:
+                do nothing
+            and so on, altering new coords to give the prospective new coordinates
+            
             """
 
-            self.top_kernel = """
-            if (RIGHT[0][0] == 1.0)
-            {
-            float x = COORDS[2][0] - COORDS[0][0];
-            float y = COORDS[1][1] - COORDS[0][1];
-            float a = CG1[2][0];
-            float b = CG1[0][0];
-            float c = DG0[0][0];
-            DG1[2][0] = a;
-            DG1[0][0] = b;
-            DG1[3][0] = (1.0 / (pow(x, 2.0) + 4.0 * pow(y, 2.0))) * (-3.0 * a * pow(y, 2.0) - b * pow(x, 2.0) - b * pow(y, 2.0) + 2.0 * c * pow(x, 2.0) + 8.0 * c * pow(y, 2.0));
-            DG1[1][0] = 4.0 * c - b - a - DG1[3][0];
+            if VuCG1.mesh().topological_dimension() == 2:
+                self.coords_kernel = coords_kernel_2d
+            elif VuCG1.mesh().topological_dimension() == 3:
+                self.coords_kernel = coords_kernel_3d
+                raise NotImplementedError('Not yet implemented for 3d!')
+            else:
+                raise NotImplementedError('This is only implemented for 2d at the moment.')
+
+            par_loop(self.coords_kernel, dx,
+                     args={"EXT_V1": (ext_DG1, READ),
+                           "EXT_V0": (ext_V0_CG1, READ),
+                           "NEW_COORDS": (self.new_coords, RW),
+                           "OLD_COORDS": (self.orig_coords, READ)})
+
+            # for (i, j) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:]):
+            #     if i[0] < 0.09:
+            #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+            #     elif i[1] < 0.09:
+            #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+            #     elif i[0] > 0.91:
+            #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+            #     elif i[1] > 0.91:
+            #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+                
+
+            boundary_kernel_2d = """
+            /* find number of exterior nodes per cell */
+            int nDOF_V1 = %d;
+
+            int sum_V1_ext = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* ask if there are any exterior nodes */
+            if (sum_V1_ext > 0) {
+            /* do gaussian elimination to find constants in linear expansion */
+            /* trying to solve A*a = f for a, where A is a matrix */
+            float A[4][4], a[4], f[4], c, trial_a[4];
+            int index[4] = {0, 1, 2, 3};
+            float A_max, temp_A, temp_f, temp_i;
+            int i_max, i, j, k;
+            int n = 4;
+
+            /* fill A and f with their values */
+            for (i=0; i<n; i++) {
+            f[i] = DG1[i][0];
+            A[i][0] = 1.0;
+            A[i][1] = NEW_COORDS[i][0];
+            A[i][2] = NEW_COORDS[i][1];
+            A[i][3] = NEW_COORDS[i][0] * NEW_COORDS[i][1];}
+
+            /* do Gaussian elimination */
+            for (i=0; i<n-1; i++) {
+            /* loop through rows and columns */
+            A_max = fabs(A[i][i]);
+            i_max = i;
+            
+            /* find max value in ith column */
+            for (j=i+1; j<n; j++){ /* loop through rows below ith row */
+            if (fabs(A[j][i]) > A_max) {
+            A_max = fabs(A[j][i]);
+            i_max = j;}}
+
+            /* swap rows to get largest value in ith column on top */
+            if (i_max != i){
+            temp_f = f[i];
+            f[i] = f[i_max];
+            f[i_max] = temp_f;
+            temp_i = index[i];
+            index[i] = index[i_max];
+            index[i_max] = temp_i;
+            for (k=i; k<n; k++) {
+            temp_A = A[i][k];
+            A[i][k] = A[i_max][k];
+            A[i_max][k] = temp_A;}}
+
+            /* now scale rows below to eliminate lower diagonal values */
+            for (j=i+1; j<n; j++) {
+            c = -A[j][i] / A[i][i];
+            for (k=i; k<n; k++){
+            A[j][k] += c * A[i][k];}
+            f[j] += c * f[i];}}
+
+            /* do back-substitution to acquire solution */
+            for (i=0; i<n; i++){
+            j = n-i-1;
+            trial_a[j] = f[j];
+            for(k=j+1; k<=n; ++k) {
+            trial_a[j] -= A[j][k] * trial_a[k];}
+            trial_a[j] = trial_a[j] / A[j][j];
             }
-            else
-            {
-            float x = COORDS[0][0] - COORDS[2][0];
-            float y = COORDS[3][1] - COORDS[2][1];
-            float a = CG1[2][0];
-            float b = CG1[0][0];
-            float c = DG0[0][0];
-            DG1[0][0] = a;
-            DG1[2][0] = b;
-            DG1[3][0] = (1.0 / (pow(x, 2.0) + 4.0 * pow(y, 2.0))) * (-3.0 * a * pow(y, 2.0) - b * pow(x, 2.0) - b * pow(y, 2.0) + 2.0 * c * pow(x, 2.0) + 8.0 * c * pow(y, 2.0));
-            DG1[1][0] = 4.0 * c - b - a - DG1[3][0];
+
+            /* the solution had swapped rows, return them to correct rows */
+            for (i=0; i<n; i++) {
+            a[i] = trial_a[index[i]];}
+
+            /* extrapolate solution using new coordinates */
+            for (i=0; i<n; i++) {
+            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[3]*OLD_COORDS[i][0]*OLD_COORDS[i][1];}
             }
+            /* do nothing if there are no exterior nodes */
+            """ % (self.v_DG1.function_space().finat_element.space_dimension())
+
+            boundary_kernel_3d = """
+            // ask if there are any exterior nodes, if so do nothing
+            // else do gaussian elimination to find constants
+            // extrapolate solution for constants
             """
+
+            if VuCG1.mesh().topological_dimension() == 2:
+                self.boundary_kernel = boundary_kernel_2d
+            elif VuCG1.mesh().topological_dimension() == 3:
+                self.boundary_kernel = boundary_kernel_3d
+                raise NotImplementedError('Not yet implemented for 3d!')
+            else:
+                raise NotImplementedError('This is only implemented for 2d at the moment.')
             
         elif self.method == 'physics':
             self.bottom_kernel = """
@@ -278,23 +367,37 @@ class Boundary_Recoverer(object):
             """
 
     def apply(self):
-
         self.interpolator.interpolate()
-        par_loop(self.bottom_kernel, dx,
-                 args={"DG1": (self.v_out, RW),
-                       "CG1": (self.v1, READ),
-                       "DG0": (self.v0, READ),
-                       "COORDS": (self.coords, READ),
-                       "RIGHT": (self.right, READ)},
-                 iterate=ON_BOTTOM)
+        if self.method == 'physics':
+            par_loop(self.bottom_kernel, dx,
+                     args={"DG1": (self.v_DG1, RW),
+                           "CG1": (self.v_CG1, READ),
+                           "COORDS": (self.coords, READ),
+                           "RIGHT": (self.right, READ)},
+                     iterate=ON_BOTTOM)
 
-        par_loop(self.top_kernel, dx,
-                 args={"DG1": (self.v_out, RW),
-                       "CG1": (self.v1, READ),
-                       "DG0": (self.v0, READ),
-                       "COORDS": (self.coords, READ),
-                       "RIGHT": (self.right, READ)},
-                 iterate=ON_TOP)
+            par_loop(self.top_kernel, dx,
+                     args={"DG1": (self.v_DG1, RW),
+                           "CG1": (self.v_CG1, READ),
+                           "COORDS": (self.coords, READ),
+                           "RIGHT": (self.right, READ)},
+                     iterate=ON_TOP)
+        else:
+            # print('OUTPUT BEFORE RECOVERY')
+            # for (i, j, k) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:]):
+            #     if i[0] >= 0.5 and i[0] <= 0.6 and i[1] >= 0.9:
+            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f' % (i[0], i[1], j[0], j[1], k))
+
+            par_loop(self.boundary_kernel, dx,
+                     args={"DG1": (self.v_DG1, RW),
+                           "OLD_COORDS": (self.orig_coords, READ),
+                           "NEW_COORDS": (self.new_coords, READ),
+                           "EXT_V1" : (self.ext_DG1, READ)})
+            
+            # print('OUTPUT AFTER RECOVERY')
+            # for (i, j, k, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
+            #     if i[0] >= 0.45 and i[0] <= 0.65 and i[1] >= 0.89:
+            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.2f' % (i[0], i[1], j[0], j[1], k, ext))
 
 
 class Recoverer(object):
@@ -338,7 +441,7 @@ class Recoverer(object):
         # check boundary method options are valid
         if boundary_method is not None:
             if boundary_method != 'scalar' and boundary_method != 'vector' and boundary_method != 'physics':
-                raise ValueError("Specified boundary_method % not valid" % boundary_method)
+                raise ValueError("Specified boundary_method %s not valid" % boundary_method)
             if VDG is None:
                 raise ValueError("If boundary_method is specified, VDG also needs specifying.")
 
@@ -348,82 +451,115 @@ class Recoverer(object):
                 if self.V.value_size != 1:
                     raise ValueError('This method only works for scalar functions.')
                 self.boundary_recoverer = Boundary_Recoverer(self.v_out, self.v, method='physics')
-            elif boundary_method == 'scalar':
-                # check dimensions
-                if self.V.value_size != 1:
-                    raise ValueError('This method only works for scalar functions.')
-                
-                # make exterior CG2 field (we need this to interpolate for general temperature space)
-                mesh = self.V.mesh()
-                VDG0 = FunctionSpace(mesh, "DG", 0)
-                VCG2 = FunctionSpace(mesh, "CG", 2)
-                exterior_CG2 = Function(VCG2)
-                boundary_conditions = [DirichletBC(VCG2, Constant(1.0), "top", method="geometric"),
-                                       DirichletBC(VCG2, Constant(1.0), "bottom", method="geometric"),
-                                       DirichletBC(VCG2, Constant(1.0), "on_boundary", method="geometric")]
-                for bc in boundary_conditions:
-                    bc.apply(exterior_CG2)
+            else:
+                # STRATEGY
+                # We need to pass the boundary recoverer two fields denoting the location
+                # of nodes on the boundary, which will be 1 on the exterior and 0 otherwise.
+                # (a) an exterior field in DG1, the space the boundary recoverer recovers
+                #     into. This is done by straightforwardly applying DirichletBCs.
+                # (b) an exterior field in the space of the original field, which we will
+                #     call V0. There are various steps involved in doing this:
+                #     1. Obtain the exterior field in CG2 (scalar or vector) by applying
+                #        the Dirichlet BCs. CG2 is required as it will contain all the DOFs
+                #        of V0 directly.
+                #     2. Project this field into V0 to get a representation of the field in
+                #        V0. Ideally we would do interpolation here rather than projection,
+                #        but interpolation is not supported into our velocity fields.
+                #     3. We can now perfectly represent this exterior V0 field in CG1 (scalar
+                #        or vector), by interpolation. CG1 should be larger than any field we
+                #        need to recover.
+                #     4. As there may continuity between basis functions in V0, the projection
+                #        will not necessarily have preserved the values of 0 or 1. We now do a
+                #        hack, modifying the points individually so that they are 0 or 1. We
+                #        have found this works if the projected value is below or above 0.5.
 
-                v_in_ext = Function(v_in.function_space()).interpolate(exterior_CG2)
-                v_out_ext = Function(self.V).interpolate(exterior_CG2)
-                v_in_extnum = Function(VDG0)
-
-                find_number_of_exterior_DOFs_per_cell(v_in_ext, v_in_extnum)
-                
-                self.boundary_recoverer = Boundary_Recoverer(self.v_out, self.v, v1_ext=v_out_ext, v0_ext=v_in_extnum, method='dynamics')
-            elif boundary_method == 'vector':
-                # check dimensions
-                if self.V.value_size != 2:
-                    raise NotImplementedError('This method only works for 2D vector functions.')
-                # declare relevant spaces
                 mesh = self.V.mesh()
-                VDG0 = FunctionSpace(mesh, "DG", 0)
-                VCG1 = FunctionSpace(mesh, "CG", 1)
+                V0_brok = FunctionSpace(mesh, BrokenElement(self.v_in.ufl_element()))
                 VDG1 = FunctionSpace(mesh, "DG", 1)
-                VCG2 = FunctionSpace(mesh, "CG", 2)
-                v_out_ext = Function(VCG1)
-                Vv = self.v_in.function_space()
-                bcs_CG1 = [DirichletBC(VCG1, Constant(1.0), "top", method="geometric"),
-                           DirichletBC(VCG1, Constant(1.0), "bottom", method="geometric"),
-                           DirichletBC(VCG1, Constant(1.0), "on_boundary", method="geometric")]
-                for bc in bcs_CG1:
-                    bc.apply(v_out_ext)
+                VCG1 = FunctionSpace(mesh, "CG", 1)
+                ext_DG1 = Function(VDG1)
+                bcs = [DirichletBC(VDG1, Constant(1.0), "top", method="geometric"),
+                       DirichletBC(VDG1, Constant(1.0), "bottom", method="geometric"),
+                       DirichletBC(VDG1, Constant(1.0), "on_boundary", method="geometric")]
+                for bc in bcs:
+                    bc.apply(ext_DG1)
 
-                # need to find num of exterior values per cell for each dimension of vector field
-                # first make a field in Vv that has 1 on the boundaries
-                ones_list = [1. for i in range(self.V.value_size)]
-                ones = Function(Vv).project(as_vector(ones_list))
-                exterior_Vv = Function(Vv)
-                bcs_Vv = [DirichletBC(Vv, ones, "top", method="geometric"),
-                          DirichletBC(Vv, ones, "bottom", method="geometric"),
-                          DirichletBC(Vv, ones, "on_boundary", method="geometric")]
-                for bc in bcs_Vv:
-                    bc.apply(exterior_Vv)
+                if boundary_method == 'scalar':
+                    # check dimensions
+                    if self.V.value_size != 1:
+                        raise ValueError('This method only works for scalar functions.')
+                
+                    # make exterior CG2 field (we need this to interpolate for general temperature space)
+                    V0 = self.v_in.function_space()
 
-                # now, for each component, convert to CG2 which should be bigger than Vv
-                exterior_CG2 = []
-                v_in_extnum = []
-                v_scalars = []
-                v_out_scalars = []
-                self.boundary_recoverers = []
-                self.project_to_scalars_CG = []
-                self.extra_averagers = []
-                for i in range(self.V.value_size):
-                    exterior_CG2.append(Function(VCG2).interpolate(exterior_Vv[i]))
-                    # do horrendous hack to ensure values are either 0 or 1
-                    exterior_CG2[i].interpolate(conditional(exterior_CG2[i] > 0.75, 1.0, 0.0))
-                    v_in_extnum.append(Function(VDG0))
-                    find_number_of_exterior_DOFs_per_cell(exterior_CG2[i], v_in_extnum[i])
-                    v_scalars.append(Function(VDG1))
-                    v_out_scalars.append(Function(VCG1))
-                    self.project_to_scalar_CG.append(Projector(self.v_out[i], self.v_out_scalar[i]))
-                    self.boundary_recoverers.append(Boundary_Recoverer(v_out_scalars[i], v_scalars[i], v1_ext=v_out_ext, v0_ext=v_in_extnum[i], method='dynamics'))
-                    # need an extra averager that works on the scalar fields rather than the vector one
-                    self.extra_averagers.append(Averager(self.v_scalars[i], self.v_out_scalars[i]))
+                    VCG2 = FunctionSpace(mesh, "CG", 2)
+                    exterior_CG2 = Function(VCG2)
+                    bcs = [DirichletBC(VCG2, Constant(1.0), "top", method="geometric"),
+                           DirichletBC(VCG2, Constant(1.0), "bottom", method="geometric"),
+                           DirichletBC(VCG2, Constant(1.0), "on_boundary", method="geometric")]
+                    
+                    for bc in bcs:
+                        bc.apply(exterior_CG2)
 
-                # the boundary recoverer needs to be done on a scalar fields
-                # so need to extract component and restore it after the boundary recovery is done
-                self.project_to_vector = Projector(as_vector(v_out_scalars), self.v_out)
+                    exterior_V0 = Function(V0_brok).project(exterior_CG2)
+                    ext_V0_CG1 = Function(VCG2).interpolate(exterior_V0)
+
+                    for (i, p) in enumerate(ext_V0_CG1.dat.data[:]):
+                        if p > 0.5:
+                            ext_V0_CG1.dat.data[i] = 1
+                        else:
+                            ext_V0_CG1.dat.data[i] = 0
+                
+                    self.boundary_recoverer = Boundary_Recoverer(self.v_out, self.v,
+                                                                 ext_DG1=ext_DG1, ext_V0_CG1=ext_V0_CG1,
+                                                                 method='dynamics')
+                elif boundary_method == 'vector':
+                    # check dimensions
+                    if self.V.value_size != 2:
+                        raise NotImplementedError('This method only works for 2D vector functions.')
+ 
+                    VuCG1 = VectorFunctionSpace(mesh, "CG", 1)
+                    VuCG2 = VectorFunctionSpace(mesh, "CG", 2)
+                    exterior_VuCG2 = Function(VuCG2)
+                    bcs = [DirichletBC(VuCG2, Constant(1.0), "top", method="geometric"),
+                           DirichletBC(VuCG2, Constant(1.0), "bottom", method="geometric"),
+                           DirichletBC(VuCG2, Constant(1.0), "on_boundary", method="geometric")]
+                    
+                    for bc in bcs:
+                        bc.apply(exterior_VuCG2)
+
+                    exterior_V0 = Function(V0_brok).project(exterior_VuCG2)
+                    ext_V0_VuCG1 = Function(VuCG1).interpolate(exterior_V0)
+
+                    for (i, point) in enumerate(ext_V0_VuCG1.dat.data[:]):
+                        for (j, p) in enumerate(point):
+                            if p > 0.5:
+                                ext_V0_VuCG1.dat.data[i][j] = 1
+                            else:
+                                ext_V0_VuCG1.dat.data[i][j] = 0
+
+                    # now, break the problem down into components
+                    v_scalars = []
+                    v_out_scalars = []
+                    ext_V0_CG1s = []
+                    self.boundary_recoverers = []
+                    self.project_to_scalars_CG = []
+                    self.extra_averagers = []
+                    for i in range(self.V.value_size):
+                        v_scalars.append(Function(VDG1))
+                        v_out_scalars.append(Function(VCG1))
+                        ext_V0_CG1s.append(Function(VCG1).project(ext_V0_VuCG1[i]))
+                        self.project_to_scalars_CG.append(Projector(self.v_out[i], v_out_scalars[i]))
+                        self.boundary_recoverers.append(Boundary_Recoverer(v_out_scalars[i], v_scalars[i],
+                                                                           ext_DG1=ext_DG1,
+                                                                           ext_V0_CG1=ext_V0_CG1s[i],
+                                                                           method='dynamics'))
+                        # need an extra averager that works on the scalar fields rather than the vector one
+                        self.extra_averagers.append(Averager(v_scalars[i], v_out_scalars[i]))
+
+                    # the boundary recoverer needs to be done on a scalar fields
+                    # so need to extract component and restore it after the boundary recovery is done
+                    self.project_to_vector = Projector(as_vector(v_out_scalars), self.v_out)
 
 
     def project(self):
@@ -435,13 +571,13 @@ class Recoverer(object):
             self.interpolator.interpolate()
         self.averager.project()
         if self.boundary_method is not None:
-            if self.boundary_method == 'velocity':
+            if self.boundary_method == 'vector':
                 for i in range(self.V.value_size):
                     self.project_to_scalars_CG[i].project()
                     self.boundary_recoverers[i].apply()
                     self.extra_averagers[i].project()
                 self.restore_vector()
-            elif self.boundary_method == 'density' or self.boundary_method == 'physics':
+            elif self.boundary_method == 'scalar' or self.boundary_method == 'physics':
                 self.boundary_recoverer.apply()
                 self.averager.project()
         return self.v_out
