@@ -5,7 +5,7 @@ from gusto.configuration import logger
 from firedrake import (expression, function, Function, FunctionSpace, Projector,
                        VectorFunctionSpace, SpatialCoordinate, as_vector, Constant,
                        dx, Interpolator, quadrilateral, BrokenElement, interval,
-                       TensorProductElement, FiniteElement, DirichletBC, conditional)
+                       TensorProductElement, FiniteElement, DirichletBC, conditional, interpolate)
 from firedrake.utils import cached_property
 from firedrake.parloops import par_loop, READ, INC, RW
 from pyop2 import ON_TOP, ON_BOTTOM
@@ -118,6 +118,7 @@ class Boundary_Recoverer(object):
         self.v_DG1 = v_DG1
         self.v_CG1 = v_CG1
         self.ext_DG1 = ext_DG1
+        self.ext_V0_CG1 = ext_V0_CG1
         
         self.method = method
         mesh = v_CG1.function_space().mesh()
@@ -187,45 +188,61 @@ class Boundary_Recoverer(object):
             if (sum_V1_ext == 0){
             /* do nothing for internal cells */
             }
+
             else if (sum_V1_ext == 2 && sum_V0_ext == 0){
             /* cells on edge from DG0 */
-            for (int i=0; i<nDOF_V1; ++i){
+            for (int i=0; i<nDOF_V1; ++i){ /* loop through each node */
             if (round(EXT_V1[i][0]) == 1){
+            /* if the node is external, we need to give it new coords */
+            /* first find a max_dist to be starting point to find min_dist */
             float max_dist = 0;
             for (int j=0; j<nDOF_V1; ++j) {
             float dist = 0;
             for (int k=0; k<dim; ++k) {
-            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);
-            }
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
             dist = pow(dist, 0.5);
-            max_dist = fmax(dist, max_dist);
-            }
+            max_dist = fmax(dist, max_dist);}
+            /* find the index of the closest internal node to each external node */
             float min_dist = max_dist;
             int index = -1;
             for (int j=0; j<nDOF_V1; ++j) {
             if (round(EXT_V1[j][0]) == 0) {
             float dist = 0;
             for (int k=0; k<dim; ++k) {
-            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);
-            }
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
             dist = pow(dist, 0.5);
             if (dist <= min_dist) {
             min_dist = dist;
-            index = j;
-            }}}
+            index = j;}}}
+            /* new coords are halfway between old coords and nearest internal node */
             NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
             NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
             }}}
+
             else if (sum_V1_ext == 2 && sum_V0_ext == 2){
             /* do something to new coords */
-            fprintf(stderr, "Wrong number of exterior coords found");}
+            /*fprintf(stderr, "Wrong number of exterior coords found"); */}
+
             else if (sum_V1_ext == 3 && sum_V0_ext == 0){
-            /* do nothing */ }
+            /* cells in corner from DG0 */
+            for (int i=0; i<nDOF_V1; ++i){ /* loop through each node */
+            if (round(EXT_V1[i][0]) == 1){
+            /* if the node is external, we need to give it new coords */
+            /* first the index of the only internal node */
+            int index = -1;
+            for (int j=0; j<nDOF_V1; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            index = j;}}
+            /* new coords are halfway between old coords and nearest internal node */
+            NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
+            NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
+            }}}
+
             else if (sum_V1_ext == 3 && sum_V0_ext == 2){
             /* do something to new coords */
-            fprintf(stderr, "Wrong number of exterior coords found");}
+            /*fprintf(stderr, "Wrong number of exterior coords found");*/}
             else {
-            fprintf(stderr, "Wrong number of exterior coords found");}
+            fprintf(stderr, "DOOMWrong number of exterior coords found");}
             
             """ % (self.v_DG1.function_space().finat_element.space_dimension(),
                    self.v_CG1.function_space().finat_element.space_dimension(),
@@ -251,6 +268,34 @@ class Boundary_Recoverer(object):
                            "EXT_V0": (ext_V0_CG1, READ),
                            "NEW_COORDS": (self.new_coords, RW),
                            "OLD_COORDS": (self.orig_coords, READ)})
+
+            VDG0 = FunctionSpace(mesh, "DG", 0)
+            DG0_num = Function(VDG0)
+
+            num_kernel = """
+            DG0[0][0] = 0;
+            for (int i=0; i<%d; i++) {
+            DG0[0][0] += EXT_V0[i][0];} 
+            """ % self.ext_V0_CG1.function_space().finat_element.space_dimension()
+
+            par_loop(num_kernel, dx,
+                     args={"DG0": (DG0_num, RW),
+                           "EXT_V0": (ext_V0_CG1, READ)})
+
+            meshDG0 = VDG0.ufl_domain()
+            WDG0 = VectorFunctionSpace(meshDG0, VDG0.ufl_element())
+            coordsDG0 = interpolate(meshDG0.coordinates, WDG0)
+            meshCG1 = VCG1.ufl_domain()
+            WCG1 = VectorFunctionSpace(meshCG1, VCG1.ufl_element())
+            coordsCG1 = interpolate(meshCG1.coordinates, WCG1)
+
+            # print('Look at V0 exterior numbers')
+            # for (coord, value) in zip(coordsDG0.dat.data[:], DG0_num.dat.data[:]):
+            #     print('[%.2f, %.2f] %.2f' % (coord[0], coord[1], value))
+
+            # print('Look at exterior values', len(self.orig_coords.dat.data[:]), len(ext_V0_CG1.dat.data[:]))
+            # for (coord, value) in zip(self.orig_coords.dat.data[:], ext_V0_CG1.dat.data[:]):
+            #     print('[%.2f, %.2f] %.2f' % (coord[0], coord[1], value))
 
             # for (i, j) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:]):
             #     if i[0] < 0.09:
@@ -375,6 +420,7 @@ class Boundary_Recoverer(object):
                            "RIGHT": (self.right, READ)},
                      iterate=ON_TOP)
         else:
+            old_v_DG1 = Function(self.v_DG1.function_space()).assign(self.v_DG1)
             par_loop(self.boundary_kernel, dx,
                      args={"DG1": (self.v_DG1, RW),
                            "OLD_COORDS": (self.orig_coords, READ),
@@ -489,7 +535,7 @@ class Recoverer(object):
                         bc.apply(exterior_CG2)
 
                     exterior_V0 = Function(V0_brok).project(exterior_CG2)
-                    ext_V0_CG1 = Function(VCG2).interpolate(exterior_V0)
+                    ext_V0_CG1 = Function(VCG1).interpolate(exterior_V0)
 
                     for (i, p) in enumerate(ext_V0_CG1.dat.data[:]):
                         if p > 0.5:
