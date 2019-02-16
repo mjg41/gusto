@@ -220,8 +220,8 @@ class Boundary_Recoverer(object):
             }}}
 
             else if (sum_V1_ext == 2 && sum_V0_ext == 2){
-            /* do something to new coords */
-            /*fprintf(stderr, "Wrong number of exterior coords found"); */}
+            /* recovery from theta space with node on edge */
+            /* no extra recovery necessary */}
 
             else if (sum_V1_ext == 3 && sum_V0_ext == 0){
             /* cells in corner from DG0 */
@@ -239,10 +239,46 @@ class Boundary_Recoverer(object):
             }}}
 
             else if (sum_V1_ext == 3 && sum_V0_ext == 2){
-            /* do something to new coords */
-            /*fprintf(stderr, "Wrong number of exterior coords found");*/}
+            /* recovery from theta space in the corner of the domain */
+            /* plan for this one is to first identify each node */
+            int internal_idx = 100; /* index of internal node */
+            int opposite_idx = 100; /* index of the node opposite the internal node */
+            int both_idx = 100; /* index of node which is external but recorded as internal for theta space */
+            int other_idx = 100; /* index of the other node */
+
+            /* first identify internal node and 'both' node */
+            for (int i=0; i<nDOF_V1; ++i) { /* loop through nodes to find the internal node */
+            if (round(EXT_V1[i][0]) == 0) {
+            internal_idx = i;}
+            else if (round(EXT_V1[i][0] == 1) && round(EXT_V0[i][0]) == 0) {
+            both_idx = i;}}
+
+            /* now identify other nodes in terms of their distance from the other nodes */
+            for (int i=0; i<nDOF_V1; ++i) {
+            if (i != internal_idx && i != both_idx) {
+            float internal_dist = 0;
+            float both_dist = 0;
+            for (int k=0; k<dim; ++k) {
+            internal_dist += pow(OLD_COORDS[i][k] - OLD_COORDS[internal_idx][k], 2);
+            both_dist += pow(OLD_COORDS[i][k] - OLD_COORDS[both_idx][k], 2);}
+            internal_dist = pow(internal_dist, 0.5);
+            both_dist = pow(both_dist, 0.5);
+            if (internal_dist > both_dist) {
+            opposite_idx = i;}
+            else if (internal_dist < both_dist) {
+            other_idx = i;}
             else {
-            fprintf(stderr, "DOOMWrong number of exterior coords found");}
+            fprintf(stderr, "Something has gone wrong with determining which node is which in 2d theta space case");}}}
+            
+            /* now declare the new coords */
+            for (int k=0; k<dim; ++k) {
+            NEW_COORDS[internal_idx][k] = OLD_COORDS[internal_idx][k];
+            NEW_COORDS[both_idx][k] = 0.5 * (OLD_COORDS[both_idx][k] + OLD_COORDS[internal_idx][k]);
+            NEW_COORDS[opposite_idx][k] = 0.5 * (OLD_COORDS[opposite_idx][k] + OLD_COORDS[other_idx][k]);
+            NEW_COORDS[other_idx][k] = OLD_COORDS[other_idx][k];}}
+
+            else {
+            fprintf(stderr, "Wrong number of exterior coords found");}
             
             """ % (self.v_DG1.function_space().finat_element.space_dimension(),
                    self.v_CG1.function_space().finat_element.space_dimension(),
@@ -306,6 +342,9 @@ class Boundary_Recoverer(object):
             #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
             #     elif i[1] > 0.91:
             #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+
+            # for (i, j) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:]):
+            #     print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
                 
 
             boundary_kernel_2d = """
