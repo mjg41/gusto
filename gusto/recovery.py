@@ -113,8 +113,6 @@ class Boundary_Recoverer(object):
 
     def __init__(self, v_CG1, v_DG1, ext_DG1, ext_V0_CG1, method='physics'):
 
-        #import pdb; pdb.set_trace()
-
         self.v_DG1 = v_DG1
         self.v_CG1 = v_CG1
         self.ext_DG1 = ext_DG1
@@ -131,7 +129,22 @@ class Boundary_Recoverer(object):
                 raise NotImplementedError("This boundary recovery method requires v1 to be in CG1.")
             if v_DG1.function_space() != FunctionSpace(mesh, "DG", 1):
                 raise NotImplementedError("This boundary recovery method requires v_out to be in DG1.")
+            # check whether mesh is valid
+            if mesh.topological_dimension() == 2:
+                # if mesh is extruded then we're fine, but if not needs to be quads
+                if not VDG0.extruded and mesh.ufl_cell().cell_name() != 'quadrilateral':
+                    raise NotImplementedError('For 2D meshes this recovery method requires that elements are quadrilaterals')
+            elif mesh.topological_dimension() == 3:
+                # assume that 3D mesh is extruded
+                if mesh._base_mesh.ufl_cell().cellname() != 'quadrilateral':
+                    raise NotImplementedError('For 3D extruded meshes this recovery method requires a base mesh with quadrilateral elements')
+            else:
+                raise NotImplementedError('This boundary recovery is implemented only on certain calasses of mesh.')
+
         elif self.method == 'physics':
+            # check that mesh is valid -- must be an extruded mesh
+            if not VDG0.extruded:
+                raise NotImplementedError('The physics boundary method only works on extruded meshes')
             # base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
             w_hori = FiniteElement("DG", cell, 0)
@@ -152,14 +165,6 @@ class Boundary_Recoverer(object):
         x = SpatialCoordinate(VDG0.mesh())
         self.orig_coords = Function(VuDG1).project(x)
         self.interpolator = Interpolator(self.v_CG1, self.v_DG1)
-
-        # check that we're using quads on extruded mesh -- otherwise it will fail!
-        if not VDG0.extruded and VDG0.ufl_element().cell() != quadrilateral:
-            raise NotImplementedError("This code only works on extruded quadrilateral meshes.")
-
-        logger.warning('This boundary recovery method is bespoke: it should only be used extruded meshes based on a periodic interval in 2D.')
-
-        self.right = Function(VDG0)
 
         if self.method == 'dynamics':
 
@@ -285,19 +290,223 @@ class Boundary_Recoverer(object):
                    np.prod(VuDG1.shape))
 
             coords_kernel_3d = """
-            if sum(v1_ext) == 0:
-                do nothing
-            and so on, altering new coords to give the prospective new coordinates
+            int nDOF_V1 = %d;
+            int nDOF_V0 = %d;
+            int dim = %d;
+
+            /* find num of ext DOFs in this cell, DG1 */
+            int sum_V1_ext = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* find num of ext DOFs in this cell, CG1 */
+            int sum_V0_ext = 0;
+            for (int i=0; i<nDOF_V0; ++i) {
+            sum_V0_ext += round(EXT_V0[i][0]);}
             
-            """
+            if (sum_V1_ext == 0){
+            /* do nothing for internal cells */
+            }
+
+            else if (sum_V1_ext == 4 && sum_V0_ext == 0){
+            /* cells on face from DG0 or theta space without touching boundary */
+            for (int i=0; i<nDOF_V1; ++i){ /* loop through each node */
+            if (round(EXT_V1[i][0]) == 1){
+            /* if the node is external, we need to give it new coords */
+            /* first find a max_dist to be starting point to find min_dist */
+            float max_dist = 0;
+            for (int j=0; j<nDOF_V1; ++j) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            max_dist = fmax(dist, max_dist);}
+            /* find the index of the closest internal node to each external node */
+            float min_dist = max_dist;
+            int index = -1;
+            for (int j=0; j<nDOF_V1; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            if (dist <= min_dist) {
+            min_dist = dist;
+            index = j;}}}
+            /* new coords are halfway between old coords and nearest internal node */
+            NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
+            NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
+            NEW_COORDS[i][2] = 0.5*(OLD_COORDS[i][2] + OLD_COORDS[index][2]);
+            }}}
+
+            else if (sum_V1_ext == 4 && sum_V0_ext == 4){
+            /* recovery from theta space with node on face */
+            /* no extra recovery necessary */}
+
+
+            else if (sum_V1_ext == 6 && sum_V0_ext == 0){
+            /* recovery at edge from DG0 or with theta space with no exterior nodes */
+            for (int i=0; i<nDOF_V1; ++i){ /* loop through each node */
+            if (round(EXT_V1[i][0]) == 1){
+            /* if the node is external, we need to give it new coords */
+            /* first find a max_dist to be starting point to find min_dist */
+            float max_dist = 0;
+            for (int j=0; j<nDOF_V1; ++j) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            max_dist = fmax(dist, max_dist);}
+            /* find the index of the closest internal node to each external node */
+            float min_dist = max_dist;
+            int index = -1;
+            for (int j=0; j<nDOF_V1; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(OLD_COORDS[i][k] - OLD_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            if (dist <= min_dist) {
+            min_dist = dist;
+            index = j;}}}
+            /* new coords are halfway between old coords and nearest internal node */
+            NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
+            NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
+            NEW_COORDS[i][2] = 0.5*(OLD_COORDS[i][2] + OLD_COORDS[index][2]);
+            }}}
+
+            else if (sum_V1_ext == 6 && sum_V0_ext == 4){
+            /* recovery at edge from theta space with one exterior node */
+            int internal_indices[2] = {100, 100};
+            int both_indices[2] = {100, 100};
+            int opposite_indices[2] = {100, 100};
+            int other_indices[2] = {100, 100};
+
+            /* identify both internal nodes and */
+            /* identify external nodes which are internal for theta space */
+            int index_for_internal_indices = 0;
+            int index_for_both_indices = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            if (round(EXT_V1[i][0]) == 0) {
+            internal_indices[index_for_internal_indices] = i;
+            index_for_internal_indices += 1;}
+            else if (round(EXT_V0[i][0]) == 0) {
+            both_indices[index_for_both_indices] = i;
+            index_for_both_indices += 1;}}
+
+            /* now loop through other nodes */
+            int index_for_other_indices = 0;
+            int index_for_opposite_indices = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            /* look for the remaining node types */
+            if (round(EXT_V1[i][0]) == 1 && round(EXT_V0[i][0]) == 1) {
+            float dist_internal_0 = 0;
+            float dist_both_0 = 0;
+            float dist_internal_1 = 0;
+            float dist_both_1 = 0;
+            for (int k=0; k<dim; ++k) {
+            dist_internal_0 += pow(OLD_COORDS[i][k] - OLD_COORDS[internal_indices[0]][k], 2);
+            dist_internal_1 += pow(OLD_COORDS[i][k] - OLD_COORDS[internal_indices[1]][k], 2);
+            dist_both_0 += pow(OLD_COORDS[i][k] - OLD_COORDS[both_indices[0]][k], 2);
+            dist_both_1 += pow(OLD_COORDS[i][k] - OLD_COORDS[both_indices[1]][k], 2);}
+            dist_internal_0 = pow(dist_internal_0, 0.5);
+            dist_internal_1 = pow(dist_internal_1, 0.5);
+            dist_both_0 = pow(dist_both_0, 0.5);
+            dist_both_1 = pow(dist_both_1, 0.5);
+            float min_internal_dist = fmin(dist_internal_0, dist_internal_1);
+            float min_both_dist = fmin(dist_both_0, dist_both_1);
+
+            /* if they are closer to the nearest internal node rather than the nearest both node, then they are other nodes */
+            if (min_internal_dist < min_both_dist) {
+            other_indices[index_for_other_indices] = i;
+            index_for_other_indices += 1;}
+            /* else they are opposite nodes */
+            else {
+            opposite_indices[index_for_opposite_indices] = i;
+            index_for_opposite_indices += 1;}}
+            }
+
+            /* coords of all internal and other nodes stay the same */
+            for (int k=0; k<dim; ++k) {
+            for (int j=0; j<2; ++j) {
+            NEW_COORDS[internal_indices[j]][k] = OLD_COORDS[internal_indices[j]][k];
+            NEW_COORDS[other_indices[j]][k] = OLD_COORDS[other_indices[j]][k];
+            }}
+            
+            /* coords of opposite nodes move towards those of the nearest other node */
+            /* coords of both nodes move towrds those of the closest internal node */
+            for (int j=0; j<2; ++j) {
+            float dist_other_0 = 0;
+            float dist_other_1 = 0;
+            float dist_internal_0 = 0;
+            float dist_internal_1 = 0;
+            for (int k=0; k<dim; ++k) {
+            dist_other_0 += pow(OLD_COORDS[opposite_indices[j]][k] - OLD_COORDS[other_indices[0]][k], 2);
+            dist_other_1 += pow(OLD_COORDS[opposite_indices[j]][k] - OLD_COORDS[other_indices[1]][k], 2);
+            dist_internal_0 += pow(OLD_COORDS[both_indices[j]][k] - OLD_COORDS[internal_indices[0]][k], 2);
+            dist_internal_1 += pow(OLD_COORDS[both_indices[j]][k] - OLD_COORDS[internal_indices[1]][k], 2);}
+            dist_other_0 = pow(dist_other_0, 0.5);
+            dist_other_1 = pow(dist_other_1, 0.5);
+            dist_internal_0 = pow(dist_internal_0, 0.5);
+            dist_internal_1 = pow(dist_internal_1, 0.5);
+            if (dist_other_0 < dist_other_1) {
+            fprintf(stderr, "STROKE");
+            for (int k=0; k<dim; ++k) {
+            NEW_COORDS[opposite_indices[j]][k] = 0.5 * (OLD_COORDS[opposite_indices[j]][k] + OLD_COORDS[other_indices[0]][k]);}}
+            else {
+            fprintf(stderr, "LIME");
+            for (int k=0; k<dim; ++k) {
+            NEW_COORDS[opposite_indices[j]][k] = 0.5 * (OLD_COORDS[opposite_indices[j]][k] + OLD_COORDS[other_indices[1]][k]);}}
+            if (dist_internal_0 < dist_internal_1) {
+            fprintf(stderr, "SQUEEZE");
+            for (int k=0; k<dim; ++k) {
+            NEW_COORDS[both_indices[j]][k] = 0.5 * (OLD_COORDS[both_indices[j]][k] + OLD_COORDS[internal_indices[0]][k]);}}
+            else {
+            fprintf(stderr, "LEMON");
+            for (int k=0; k<dim; ++k) {
+            NEW_COORDS[both_indices[j]][k] = 0.5 * (OLD_COORDS[both_indices[j]][k] + OLD_COORDS[internal_indices[1]][k]);}}
+            }}
+
+            else if (sum_V1_ext == 7 && sum_V0_ext == 0){
+            /* recovery at corner from DG0 */
+            for (int i=0; i<nDOF_V1; ++i){ /* loop through each node */
+            if (round(EXT_V1[i][0]) == 1){
+            /* if the node is external, we need to give it new coords */
+            /* first the index of the only internal node */
+            int index = -1;
+            for (int j=0; j<nDOF_V1; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            index = j;}}
+            /* new coords are halfway between old coords and nearest internal node */
+            NEW_COORDS[i][0] = 0.5*(OLD_COORDS[i][0] + OLD_COORDS[index][0]);
+            NEW_COORDS[i][1] = 0.5*(OLD_COORDS[i][1] + OLD_COORDS[index][1]);
+            NEW_COORDS[i][2] = 0.5*(OLD_COORDS[i][2] + OLD_COORDS[index][2]);
+            }}}
+
+            else if (sum_V1_ext == 7 && sum_V0_ext == 4){
+            /* recovery at corner from theta space */}
+            
+            /* identify which node is the internal node */
+            /* identify which nodes are external but Vt internal ("both nodes") */
+
+            /* identify which of the other nodes is closest to the internal node ("other node") */
+            /* all the remaining nodes are "opposite nodes" */
+
+            /* the both nodes move closer to the internal node */
+            /* the opposite nodes move closer to the other node */
+            else {
+            fprintf(stderr, "Wrong number of exterior coords found");}
+            
+            """ % (self.v_DG1.function_space().finat_element.space_dimension(),
+                   self.v_CG1.function_space().finat_element.space_dimension(),
+                   np.prod(VuDG1.shape))
 
             if VuCG1.mesh().topological_dimension() == 2:
                 self.coords_kernel = coords_kernel_2d
             elif VuCG1.mesh().topological_dimension() == 3:
                 self.coords_kernel = coords_kernel_3d
-                raise NotImplementedError('Not yet implemented for 3d!')
             else:
-                raise NotImplementedError('This is only implemented for 2d at the moment.')
+                raise NotImplementedError('This is only implemented for 2d and 3d at the moment.')
 
             par_loop(self.coords_kernel, dx,
                      args={"EXT_V1": (ext_DG1, READ),
@@ -306,7 +515,8 @@ class Boundary_Recoverer(object):
                            "OLD_COORDS": (self.orig_coords, READ)})
 
             VDG0 = FunctionSpace(mesh, "DG", 0)
-            DG0_num = Function(VDG0)
+            DG0_V0_num = Function(VDG0)
+            DG0_CG1_num = Function(VDG0)
 
             num_kernel = """
             DG0[0][0] = 0;
@@ -315,8 +525,12 @@ class Boundary_Recoverer(object):
             """ % self.ext_V0_CG1.function_space().finat_element.space_dimension()
 
             par_loop(num_kernel, dx,
-                     args={"DG0": (DG0_num, RW),
+                     args={"DG0": (DG0_V0_num, RW),
                            "EXT_V0": (ext_V0_CG1, READ)})
+
+            par_loop(num_kernel, dx,
+                     args={"DG0": (DG0_CG1_num, RW),
+                           "EXT_V0": (ext_DG1, READ)})
 
             meshDG0 = VDG0.ufl_domain()
             WDG0 = VectorFunctionSpace(meshDG0, VDG0.ufl_element())
@@ -326,8 +540,8 @@ class Boundary_Recoverer(object):
             coordsCG1 = interpolate(meshCG1.coordinates, WCG1)
 
             # print('Look at V0 exterior numbers')
-            # for (coord, value) in zip(coordsDG0.dat.data[:], DG0_num.dat.data[:]):
-            #     print('[%.2f, %.2f] %.2f' % (coord[0], coord[1], value))
+            # for (coord, value0, value1) in zip(coordsDG0.dat.data[:], DG0_V0_num.dat.data[:], DG0_CG1_num.dat.data[:]):
+            #     print('[%.2f, %.2f %.2f] %i %i ' % (coord[0], coord[1], coord[2], value0, value1))
 
             # print('Look at exterior values', len(self.orig_coords.dat.data[:]), len(ext_V0_CG1.dat.data[:]))
             # for (coord, value) in zip(self.orig_coords.dat.data[:], ext_V0_CG1.dat.data[:]):
@@ -343,8 +557,8 @@ class Boundary_Recoverer(object):
             #     elif i[1] > 0.91:
             #         print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
 
-            # for (i, j) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:]):
-            #     print('[%.2f, %.2f] [%.2f, %.2f]' % (i[0], i[1], j[0], j[1]))
+            for (i, j) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:]):
+                print('[%.2f, %.2f %.2f] [%.2f, %.2f %.2f]' % (i[0], i[1], i[2], j[0], j[1], j[2]))
                 
 
             boundary_kernel_2d = """
@@ -418,18 +632,85 @@ class Boundary_Recoverer(object):
             """ % (self.v_DG1.function_space().finat_element.space_dimension())
 
             boundary_kernel_3d = """
-            // ask if there are any exterior nodes, if so do nothing
-            // else do gaussian elimination to find constants
-            // extrapolate solution for constants
-            """
+            /* find number of exterior nodes per cell */
+            int nDOF_V1 = %d;
+
+            int sum_V1_ext = 0;
+            for (int i=0; i<nDOF_V1; ++i) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* ask if there are any exterior nodes */
+            if (sum_V1_ext > 0) {
+            /* do gaussian elimination to find constants in linear expansion */
+            /* trying to solve A*a = f for a, where A is a matrix */
+            float A[8][8], a[8], f[8], c;
+            float A_max, temp_A, temp_f;
+            int i_max, i, j, k;
+            int n = 8;
+
+            /* fill A and f with their values */
+            for (i=0; i<n; i++) {
+            f[i] = DG1[i][0];
+            A[i][0] = 1.0;
+            A[i][1] = NEW_COORDS[i][0];
+            A[i][2] = NEW_COORDS[i][1];
+            A[i][3] = NEW_COORDS[i][2];
+            A[i][4] = NEW_COORDS[i][0] * NEW_COORDS[i][1];
+            A[i][5] = NEW_COORDS[i][0] * NEW_COORDS[i][2];
+            A[i][6] = NEW_COORDS[i][1] * NEW_COORDS[i][2];
+            A[i][7] = NEW_COORDS[i][0] * NEW_COORDS[i][1] * NEW_COORDS[i][2];}
+
+            /* do Gaussian elimination */
+            for (i=0; i<n-1; i++) {
+            /* loop through rows and columns */
+            A_max = fabs(A[i][i]);
+            i_max = i;
+            
+            /* find max value in ith column */
+            for (j=i+1; j<n; j++){ /* loop through rows below ith row */
+            if (fabs(A[j][i]) > A_max) {
+            A_max = fabs(A[j][i]);
+            i_max = j;}}
+
+            /* swap rows to get largest value in ith column on top */
+            if (i_max != i){
+            temp_f = f[i];
+            f[i] = f[i_max];
+            f[i_max] = temp_f;
+            for (k=i; k<n; k++) {
+            temp_A = A[i][k];
+            A[i][k] = A[i_max][k];
+            A[i_max][k] = temp_A;}}
+
+            /* now scale rows below to eliminate lower diagonal values */
+            for (j=i+1; j<n; j++) {
+            c = -A[j][i] / A[i][i];
+            for (k=i; k<n; k++){
+            A[j][k] += c * A[i][k];}
+            f[j] += c * f[i];}}
+
+            /* do back-substitution to acquire solution */
+            for (i=0; i<n; i++){
+            j = n-i-1;
+            a[j] = f[j];
+            for(k=j+1; k<=n; ++k) {
+            a[j] -= A[j][k] * a[k];}
+            a[j] = a[j] / A[j][j];
+            }
+
+            /* extrapolate solution using new coordinates */
+            for (i=0; i<n; i++) {
+            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[3]*OLD_COORDS[i][2] + a[4]*OLD_COORDS[i][0]*OLD_COORDS[i][1] + a[5]*OLD_COORDS[i][0]*OLD_COORDS[i][2] + a[6]*OLD_COORDS[i][1]*OLD_COORDS[i][2] + a[7]*OLD_COORDS[i][0]*OLD_COORDS[i][1]*OLD_COORDS[i][2];}
+            }
+            /* do nothing if there are no exterior nodes */
+            """ % (self.v_DG1.function_space().finat_element.space_dimension())
 
             if VuCG1.mesh().topological_dimension() == 2:
                 self.boundary_kernel = boundary_kernel_2d
             elif VuCG1.mesh().topological_dimension() == 3:
                 self.boundary_kernel = boundary_kernel_3d
-                raise NotImplementedError('Not yet implemented for 3d!')
             else:
-                raise NotImplementedError('This is only implemented for 2d at the moment.')
+                raise NotImplementedError('This is only implemented for 2d and 3d at the moment.')
             
         elif self.method == 'physics':
             self.bottom_kernel = """
@@ -648,7 +929,7 @@ class Recoverer(object):
                     self.project_to_scalars_CG[i].project()
                     self.boundary_recoverers[i].apply()
                     self.extra_averagers[i].project()
-                self.restore_vector()
+                self.project_to_vector.project()
             elif self.boundary_method == 'scalar' or self.boundary_method == 'physics':
                 self.boundary_recoverer.apply()
                 self.averager.project()
