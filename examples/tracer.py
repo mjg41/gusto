@@ -39,7 +39,8 @@ for delta, dt in res_dt.items():
     output = OutputParameters(dirname=dirname,
                               dumpfreq=5,
                               dumplist=['u'],
-                              perturbation_fields=['theta', 'rho'])
+                              perturbation_fields=['theta', 'rho'],
+                              log_level='INFO')
 
     parameters = CompressibleParameters()
     diagnostics = Diagnostics(*fieldlist)
@@ -100,10 +101,8 @@ for delta, dt in res_dt.items():
     supg = True
     if supg:
         thetaeqn = SUPGAdvection(state, Vt,
-                                 supg_params={"dg_direction": "horizontal"},
                                  equation_form="advective")
         watereqn = SUPGAdvection(state, Vt,
-                                 supg_params={"dg_direction": "horizontal"},
                                  equation_form="advective")
     else:
         thetaeqn = EmbeddedDGAdvection(state, Vt,
