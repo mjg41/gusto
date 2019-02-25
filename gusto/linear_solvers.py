@@ -460,12 +460,11 @@ class HybridizedCompressibleSolver(TimesteppingSolver):
             + beta*jump(phi*u, n=n)*rhobar_avg('+')*(dS_v + dS_h)
             # term added because u.n=0 is enforced weakly via the traces
             + beta*phi*dot(u, n)*rhobar_avg*ds_tb
-            + beta*phi*dot(u, n)*rhobar_avg*ds_v
             # constraint equation to enforce continuity of the velocity
             # through the interior facets and weakly impose the no-slip
             # condition
             + dl('+')*jump(u, n=n)*(dS_vp + dS_hp)
-            + dl*dot(u, n)*(ds_tbp+ds_vp)
+            + dl*dot(u, n)*ds_tbp
         )
 
         # contribution of the sponge term
