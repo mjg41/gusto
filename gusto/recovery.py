@@ -111,7 +111,7 @@ class Boundary_Recoverer(object):
              Valid options are 'dynamics' and 'physics'.
     """
 
-    def __init__(self, v_CG1, v_DG1, ext_DG1, ext_V0_CG1, method='physics'):
+    def __init__(self, v_CG1, v_DG1, ext_DG1=None, ext_V0_CG1=None, method='physics'):
 
         self.v_DG1 = v_DG1
         self.v_CG1 = v_CG1
@@ -138,6 +138,8 @@ class Boundary_Recoverer(object):
                 # assume that 3D mesh is extruded
                 if mesh._base_mesh.ufl_cell().cellname() != 'quadrilateral':
                     raise NotImplementedError('For 3D extruded meshes this recovery method requires a base mesh with quadrilateral elements')
+            if self.ext_DG1 is None or self.ext_V0_CG1 is None:
+                raise ValueError('Need external fields for dynamics boundary methods')
             else:
                 raise NotImplementedError('This boundary recovery is implemented only on certain calasses of mesh.')
 
