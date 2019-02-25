@@ -800,16 +800,12 @@ class Boundary_Recoverer(object):
         if self.method == 'physics':
             par_loop(self.bottom_kernel, dx,
                      args={"DG1": (self.v_DG1, RW),
-                           "CG1": (self.v_CG1, READ),
-                           "COORDS": (self.coords, READ),
-                           "RIGHT": (self.right, READ)},
+                           "CG1": (self.v_CG1, READ)},
                      iterate=ON_BOTTOM)
 
             par_loop(self.top_kernel, dx,
                      args={"DG1": (self.v_DG1, RW),
-                           "CG1": (self.v_CG1, READ),
-                           "COORDS": (self.coords, READ),
-                           "RIGHT": (self.right, READ)},
+                           "CG1": (self.v_CG1, READ)},
                      iterate=ON_TOP)
         else:
             old_v_DG1 = Function(self.v_DG1.function_space()).assign(self.v_DG1)
