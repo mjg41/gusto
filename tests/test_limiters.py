@@ -108,7 +108,8 @@ def setup_limiters(dirname, direction, grid_params, ic_params):
     dg_opts = EmbeddedDGOptions()
     recovered_opts = RecoveredOptions(embedding_space=VDG1,
                                       recovered_space=VCG1,
-                                      broken_space=V0_brok)
+                                      broken_space=V0_brok,
+                                      boundary_method='scalar')
     thetaeqn1 = EmbeddedDGAdvection(state, V1, equation_form="advective", options=dg_opts)
     thetaeqn0 = EmbeddedDGAdvection(state, V0, equation_form="advective", options=recovered_opts)
 

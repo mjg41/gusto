@@ -122,6 +122,7 @@ class Boundary_Recoverer(object):
         mesh = v_CG1.function_space().mesh()
         VDG0 = FunctionSpace(mesh, "DG", 0)
         VCG1 = FunctionSpace(mesh, "CG", 1)
+        VDG1 = FunctionSpace(mesh, "DG", 1)
 
         # # check function spaces of functions -- this only works for a particular set
         if self.method == 'dynamics':
@@ -705,7 +706,7 @@ class Boundary_Recoverer(object):
 
             boundary_kernel_3d = """
             /* find number of exterior nodes per cell */
-            int nDOF_V1 = %d;
+            int nDOF_V1 = 8;
 
             int sum_V1_ext = 0;
             for (int i=0; i<nDOF_V1; ++i) {
@@ -715,8 +716,8 @@ class Boundary_Recoverer(object):
             if (sum_V1_ext > 0) {
             /* do gaussian elimination to find constants in linear expansion */
             /* trying to solve A*a = f for a, where A is a matrix */
-            float A[8][8], a[8], f[8], c;
-            float A_max, temp_A, temp_f;
+            double A[8][8], a[8], f[8], c;
+            double A_max, temp_A, temp_f;
             int i_max, i, j, k;
             int n = 8;
 
@@ -808,7 +809,6 @@ class Boundary_Recoverer(object):
                            "CG1": (self.v_CG1, READ)},
                      iterate=ON_TOP)
         else:
-            old_v_DG1 = Function(self.v_DG1.function_space()).assign(self.v_DG1)
             par_loop(self.boundary_kernel, dx,
                      args={"DG1": (self.v_DG1, RW),
                            "OLD_COORDS": (self.orig_coords, READ),

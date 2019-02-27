@@ -85,13 +85,16 @@ def setup_unsaturated(dirname):
 
         u_opts = RecoveredOptions(embedding_space=Vu_DG1,
                                   recovered_space=Vu_CG1,
-                                  broken_space=Vu)
+                                  broken_space=Vu,
+                                  boundary_method='vector')
         rho_opts = RecoveredOptions(embedding_space=VDG1,
                                     recovered_space=VCG1,
-                                    broken_space=Vr)
+                                    broken_space=Vr,
+                                    boundary_method='scalar')
         theta_opts = RecoveredOptions(embedding_space=VDG1,
                                       recovered_space=VCG1,
-                                      broken_space=Vt_brok)
+                                      broken_space=Vt_brok,
+                                      boundary_method='scalar')
 
         ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", options=u_opts)
         rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", options=rho_opts)
