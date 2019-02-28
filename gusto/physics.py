@@ -68,7 +68,7 @@ class Condensation(Physics):
 
         # make rho variables
         # we recover rho into theta space
-        if state.vertical_degree == 0 and state.mesh.geometric_dimension() == 2:
+        if state.vertical_degree == 0:
             boundary_method = 'physics'
         else:
             boundary_method = None
@@ -340,7 +340,7 @@ class Evaporation(Physics):
 
         # make rho variables
         # we recover rho into theta space
-        if state.vertical_degree == 0 and state.mesh.geometric_dimension() == 2:
+        if state.vertical_degree == 0:
             boundary_method = 'physics'
         else:
             boundary_method = None
