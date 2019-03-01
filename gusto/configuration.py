@@ -57,11 +57,13 @@ class OutputParameters(Configuration):
     #: log_level for logger, can be DEBUG, INFO or WARNING. Takes
     #: default value "warning"
     log_level = WARNING
+    dump_vtus = True
     dumpfreq = 1
     dumplist = None
     dumplist_latlon = []
     dump_diagnostics = True
     checkpoint = True
+    chkptfreq = 1
     dirname = None
     #: Should the output fields be interpolated or projected to
     #: a linear space?  Default is interpolation.
@@ -156,3 +158,10 @@ class RecoveredOptions(AdvectionOptions):
     recovered_space = None
     broken_space = None
     boundary_method = None
+
+
+class SUPGOptions(AdvectionOptions):
+
+    name = "supg"
+    tau = None
+    default = 1/sqrt(15)
