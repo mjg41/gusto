@@ -5,7 +5,9 @@ from gusto.configuration import logger
 from firedrake import (expression, function, Function, FunctionSpace, Projector,
                        VectorFunctionSpace, SpatialCoordinate, as_vector, Constant,
                        dx, Interpolator, quadrilateral, BrokenElement, interval,
-                       TensorProductElement, FiniteElement, DirichletBC, conditional, interpolate)
+                       TensorProductElement, FiniteElement, DirichletBC, conditional,
+                       interpolate, dS, dS_h, dS_v, TestFunction, NonlinearVariationalSolver,
+                       NonlinearVariationalProblem)
 from firedrake.utils import cached_property
 from firedrake.parloops import par_loop, READ, INC, RW
 from pyop2 import ON_TOP, ON_BOTTOM
@@ -634,114 +636,44 @@ class Boundary_Recoverer(object):
             #         print('[%.2f, %.2f %.2f] [%.2f, %.2f %.2f]' % (i[0], i[1], i[2], j[0], j[1], j[2]))
 
 
-            boundary_kernel_2d = """
-            /* find number of exterior nodes per cell */
-            int nDOF_V1 = %d;
-
-            int sum_V1_ext = 0;
-            for (int i=0; i<nDOF_V1; ++i) {
-            sum_V1_ext += round(EXT_V1[i][0]);}
-
-            /* ask if there are any exterior nodes */
-            if (sum_V1_ext > 0) {
+            gaussian_elimination_kernel = """
+            int n = %d;
             /* do gaussian elimination to find constants in linear expansion */
             /* trying to solve A*a = f for a, where A is a matrix */
-            float A[4][4], a[4], f[4], c;
-            float A_max, temp_A, temp_f;
-            int i_max, i, j, k;
-            int n = 4;
-
-            /* fill A and f with their values */
-            for (i=0; i<n; i++) {
-            f[i] = DG1[i][0];
-            A[i][0] = 1.0;
-            A[i][1] = NEW_COORDS[i][0];
-            A[i][2] = NEW_COORDS[i][1];
-            A[i][3] = NEW_COORDS[i][0] * NEW_COORDS[i][1];}
-
-            /* do Gaussian elimination */
-            for (i=0; i<n-1; i++) {
-            /* loop through rows and columns */
-            A_max = fabs(A[i][i]);
-            i_max = i;
-
-            /* find max value in ith column */
-            for (j=i+1; j<n; j++){ /* loop through rows below ith row */
-            if (fabs(A[j][i]) > A_max) {
-            A_max = fabs(A[j][i]);
-            i_max = j;}}
-
-            /* swap rows to get largest value in ith column on top */
-            if (i_max != i){
-            temp_f = f[i];
-            f[i] = f[i_max];
-            f[i_max] = temp_f;
-            for (k=i; k<n; k++) {
-            temp_A = A[i][k];
-            A[i][k] = A[i_max][k];
-            A[i_max][k] = temp_A;}}
-
-            /* now scale rows below to eliminate lower diagonal values */
-            for (j=i+1; j<n; j++) {
-            c = -A[j][i] / A[i][i];
-            for (k=i; k<n; k++){
-            A[j][k] += c * A[i][k];}
-            f[j] += c * f[i];}}
-
-            /* do back-substitution to acquire solution */
-            for (i=0; i<n; i++){
-            j = n-i-1;
-            a[j] = f[j];
-            for(k=j+1; k<=n; ++k) {
-            a[j] -= A[j][k] * a[k];}
-            a[j] = a[j] / A[j][j];
-            }
-
-            /* extrapolate solution using new coordinates */
-            for (i=0; i<n; i++) {
-            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[3]*OLD_COORDS[i][0]*OLD_COORDS[i][1];}
-            }
-            /* do nothing if there are no exterior nodes */
-            """ % (self.v_DG1.function_space().finat_element.space_dimension())
-
-            boundary_kernel_3d = """
-            /* find number of exterior nodes per cell */
-            int nDOF_V1 = 8;
-
-            int sum_V1_ext = 0;
-            for (int i=0; i<nDOF_V1; ++i) {
-            sum_V1_ext += round(EXT_V1[i][0]);}
-
-            /* ask if there are any exterior nodes */
-            if (sum_V1_ext > 0) {
-            /* do gaussian elimination to find constants in linear expansion */
-            /* trying to solve A*a = f for a, where A is a matrix */
-            double A[8][8], a[8], f[8], c;
+            double A[%d][%d], a[%d], f[%d], c;
             double A_max, temp_A, temp_f;
             int i_max, i, j, k;
-            int n = 8;
+
+            /* find number of exterior nodes per cell */
+            int sum_V1_ext = 0;
+            for (int i=0; i<%d; i++) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* ask if there are any exterior nodes */
+            if (sum_V1_ext > 0) {
 
             /* fill A and f with their values */
-            for (i=0; i<n; i++) {
+            for (i=0; i<%d; i++) {
             f[i] = DG1[i][0];
             A[i][0] = 1.0;
             A[i][1] = NEW_COORDS[i][0];
             A[i][2] = NEW_COORDS[i][1];
-            A[i][3] = NEW_COORDS[i][2];
-            A[i][4] = NEW_COORDS[i][0] * NEW_COORDS[i][1];
+            A[i][3] = NEW_COORDS[i][0] * NEW_COORDS[i][1];
+            if (n == 8){
+            A[i][4] = NEW_COORDS[i][2];
             A[i][5] = NEW_COORDS[i][0] * NEW_COORDS[i][2];
             A[i][6] = NEW_COORDS[i][1] * NEW_COORDS[i][2];
-            A[i][7] = NEW_COORDS[i][0] * NEW_COORDS[i][1] * NEW_COORDS[i][2];}
+            A[i][7] = NEW_COORDS[i][0] * NEW_COORDS[i][1] * NEW_COORDS[i][2];}}
 
             /* do Gaussian elimination */
-            for (i=0; i<n-1; i++) {
+            for (i=0; i<%d-1; i++) {
             /* loop through rows and columns */
             A_max = fabs(A[i][i]);
             i_max = i;
 
             /* find max value in ith column */
-            for (j=i+1; j<n; j++){ /* loop through rows below ith row */
-            if (fabs(A[j][i]) > A_max) {
+            for (j=i+1; j<%d; j++){
+            if (fabs(A[j][i]) > A_max) { /* loop through rows below ith row */
             A_max = fabs(A[j][i]);
             i_max = j;}}
 
@@ -750,38 +682,41 @@ class Boundary_Recoverer(object):
             temp_f = f[i];
             f[i] = f[i_max];
             f[i_max] = temp_f;
-            for (k=i; k<n; k++) {
+            for (k=i; k<%d; k++) {
             temp_A = A[i][k];
             A[i][k] = A[i_max][k];
             A[i_max][k] = temp_A;}}
 
             /* now scale rows below to eliminate lower diagonal values */
-            for (j=i+1; j<n; j++) {
+            for (j=i+1; j<%d; j++) {
             c = -A[j][i] / A[i][i];
-            for (k=i; k<n; k++){
+            for (k=i; k<%d; k++){
             A[j][k] += c * A[i][k];}
             f[j] += c * f[i];}}
 
             /* do back-substitution to acquire solution */
-            for (i=0; i<n; i++){
+            for (i=0; i<%d; i++){
             j = n-i-1;
             a[j] = f[j];
-            for(k=j+1; k<=n; ++k) {
+            for(k=j+1; k<=%d; ++k) {
             a[j] -= A[j][k] * a[k];}
             a[j] = a[j] / A[j][j];
             }
 
             /* extrapolate solution using new coordinates */
-            for (i=0; i<n; i++) {
-            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[3]*OLD_COORDS[i][2] + a[4]*OLD_COORDS[i][0]*OLD_COORDS[i][1] + a[5]*OLD_COORDS[i][0]*OLD_COORDS[i][2] + a[6]*OLD_COORDS[i][1]*OLD_COORDS[i][2] + a[7]*OLD_COORDS[i][0]*OLD_COORDS[i][1]*OLD_COORDS[i][2];}
+            for (i=0; i<%d; i++) {
+            if (n == 4){
+            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[3]*OLD_COORDS[i][0]*OLD_COORDS[i][1];
+            }
+            else if (n == 8){
+            DG1[i][0] = a[0] + a[1]*OLD_COORDS[i][0] + a[2]*OLD_COORDS[i][1] + a[4]*OLD_COORDS[i][2] + a[3]*OLD_COORDS[i][0]*OLD_COORDS[i][1] + a[5]*OLD_COORDS[i][0]*OLD_COORDS[i][2] + a[6]*OLD_COORDS[i][1]*OLD_COORDS[i][2] + a[7]*OLD_COORDS[i][0]*OLD_COORDS[i][1]*OLD_COORDS[i][2];
+            }}
             }
             /* do nothing if there are no exterior nodes */
-            """ % (self.v_DG1.function_space().finat_element.space_dimension())
+            """ % ((self.v_DG1.function_space().finat_element.space_dimension(), )*15 )
 
-            if VuCG1.mesh().topological_dimension() == 2:
-                self.boundary_kernel = boundary_kernel_2d
-            elif VuCG1.mesh().topological_dimension() == 3:
-                self.boundary_kernel = boundary_kernel_3d
+            if VuCG1.mesh().topological_dimension() == 2 or VuCG1.mesh().topological_dimension() == 3:
+                self.boundary_kernel = gaussian_elimination_kernel
             else:
                 raise NotImplementedError('This is only implemented for 2d and 3d at the moment.')
 
@@ -815,10 +750,10 @@ class Boundary_Recoverer(object):
                            "NEW_COORDS": (self.new_coords, READ),
                            "EXT_V1" : (self.ext_DG1, READ)})
 
-            # print('OUTPUT AFTER RECOVERY')
-            # for (i, j, k, l, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], old_v_DG1.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
-            #     if (i[0] >= 0.89 or i[0] <= 0.11) and (i[1] >= 0.89 or i[1] <= 0.11):
-            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.4f %.2f' % (i[0], i[1], j[0], j[1], k, l, ext))
+            print('OUTPUT AFTER RECOVERY')
+            for (i, j, l, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
+                if (i[0] >= 0.89 or i[0] <= 0.11) and (i[1] >= 0.89 or i[1] <= 0.11):
+                    print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.2f' % (i[0], i[1], j[0], j[1], l, ext))
 
 
 class Recoverer(object):
@@ -904,6 +839,18 @@ class Recoverer(object):
                        DirichletBC(VDG1, Constant(1.0), "on_boundary", method="geometric")]
                 for bc in bcs:
                     bc.apply(ext_DG1)
+
+                interior_facets = Function(VDG1)
+                if VDG1.extruded:
+                    self.dS = dS_h + dS_v
+                else:
+                    self.dS = dS
+                phi = TestFunction(VDG1)
+                ones = Function(VDG1).interpolate(Constant(1.0))
+                interior_form = phi * ones * self.dS - phi * interior_facets * self.dS
+                interior_prob = NonlinearVariationalProblem(interior_form, interior_facets)
+                interior_solver = NonlinearVariationalSolver(interior_prob)
+                interior_solver.solve()
 
                 if boundary_method == 'scalar':
                     # check dimensions
