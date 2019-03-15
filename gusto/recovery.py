@@ -113,12 +113,18 @@ class Boundary_Recoverer(object):
              Valid options are 'dynamics' and 'physics'.
     """
 
-    def __init__(self, v_CG1, v_DG1, ext_DG1=None, ext_V0_CG1=None, method='physics'):
+    def __init__(self, v_CG1, v_DG1, ext_DG1=None, ext_V0_CG1=None, method='physics', new_ext_coords=None):
 
         self.v_DG1 = v_DG1
         self.v_CG1 = v_CG1
         self.ext_DG1 = ext_DG1
         self.ext_V0_CG1 = ext_V0_CG1
+
+        if new_ext_coords is not None:
+            new_kernel = True
+        else:
+            new_kernel = False
+
 
         self.method = method
         mesh = v_CG1.function_space().mesh()
@@ -179,6 +185,57 @@ class Boundary_Recoverer(object):
             VuDG1 = VectorFunctionSpace(mesh, "DG", 1)
             self.orig_coords = Function(VuDG1).project(x)
             self.new_coords = Function(VuDG1).project(x)
+
+            find_effective_coords_kernel = """
+            int dim = %d;
+            int n = %d;
+
+            /* find num of DOFs to adjust in this cell, DG1 */
+            int sum_V1_ext = 0;
+            for (int i=0; i<%d; ++i) {
+            sum_V1_ext += round(EXT_V1[i][0]);}
+
+            /* only do adjustment in cells with at least one DOF to adjust */
+            if (sum_V1_ext > 0) {
+
+            /* find max dist */
+            float max_dist = 0;
+            for (int i=0; i<%d; ++i){
+            for (int j=0; j<%d; ++j) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(ACT_COORDS[i][k] - ACT_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            max_dist = fmax(dist, max_dist);}}
+
+            /* loop through DOFs in cell and find which ones to adjust */
+            for (int i=0; i<%d; ++i) {
+            if (round(EXT_V1[i][0]) == 1){
+
+            /* find closest interior node */
+            float min_dist = max_dist;
+            int index = -1;
+            for (int j=0; j<%d; ++j) {
+            if (round(EXT_V1[j][0]) == 0) {
+            float dist = 0;
+            for (int k=0; k<dim; ++k) {
+            dist += pow(ACT_COORDS[i][k] - ACT_COORDS[j][k], 2);}
+            dist = pow(dist, 0.5);
+            if (dist <= min_dist) {
+            min_dist = dist;
+            index = j;}}}
+
+            /* adjust coordinate */
+            for (int j=0; j<dim; ++j) {
+            EFF_COORDS[i][j] = 0.5 * (ACT_COORDS[i][j] + ACT_COORDS[index][j]);
+            }
+            }
+            }
+            }
+
+            /* else do nothing */
+
+            """ % ((np.prod(VuDG1.shape),) * 1 + (self.v_DG1.function_space().finat_element.space_dimension(), ) * 6)
 
             coords_kernel_2d = """
             int nDOF_V1 = %d;
@@ -582,11 +639,19 @@ class Boundary_Recoverer(object):
             else:
                 raise NotImplementedError('This is only implemented for 2d and 3d at the moment.')
 
-            par_loop(self.coords_kernel, dx,
-                     args={"EXT_V1": (ext_DG1, READ),
-                           "EXT_V0": (ext_V0_CG1, READ),
-                           "NEW_COORDS": (self.new_coords, RW),
-                           "OLD_COORDS": (self.orig_coords, READ)})
+
+
+            if new_kernel:
+                par_loop(find_effective_coords_kernel, dx,
+                         args={"EXT_V1": (new_ext_coords, READ),
+                               "ACT_COORDS": (self.orig_coords, READ),
+                               "EFF_COORDS": (self.new_coords, RW)})
+            else:
+                par_loop(self.coords_kernel, dx,
+                         args={"EXT_V1": (ext_DG1, READ),
+                               "EXT_V0": (ext_V0_CG1, READ),
+                               "NEW_COORDS": (self.new_coords, RW),
+                               "OLD_COORDS": (self.orig_coords, READ)})
 
             VDG0 = FunctionSpace(mesh, "DG", 0)
             DG0_V0_num = Function(VDG0)
@@ -750,10 +815,10 @@ class Boundary_Recoverer(object):
                            "NEW_COORDS": (self.new_coords, READ),
                            "EXT_V1" : (self.ext_DG1, READ)})
 
-            print('OUTPUT AFTER RECOVERY')
-            for (i, j, l, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
-                if (i[0] >= 0.89 or i[0] <= 0.11) and (i[1] >= 0.89 or i[1] <= 0.11):
-                    print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.2f' % (i[0], i[1], j[0], j[1], l, ext))
+            # print('OUTPUT AFTER RECOVERY')
+            # for (i, j, l, ext) in zip(self.orig_coords.dat.data[:], self.new_coords.dat.data[:], self.v_DG1.dat.data[:], self.ext_DG1.dat.data[:]):
+            #     if (i[0] >= 0.89 or i[0] <= 0.11) and (i[1] >= 0.89 or i[1] <= 0.11):
+            #         print('[%.2f, %.2f] [%.2f, %.2f] %.4f %.2f' % (i[0], i[1], j[0], j[1], l, ext))
 
 
 class Recoverer(object):
@@ -840,18 +905,6 @@ class Recoverer(object):
                 for bc in bcs:
                     bc.apply(ext_DG1)
 
-                interior_facets = Function(VDG1)
-                if VDG1.extruded:
-                    self.dS = dS_h + dS_v
-                else:
-                    self.dS = dS
-                phi = TestFunction(VDG1)
-                ones = Function(VDG1).interpolate(Constant(1.0))
-                interior_form = phi * ones * self.dS - phi * interior_facets * self.dS
-                interior_prob = NonlinearVariationalProblem(interior_form, interior_facets)
-                interior_solver = NonlinearVariationalSolver(interior_prob)
-                interior_solver.solve()
-
                 if boundary_method == 'scalar':
                     # check dimensions
                     if self.V.value_size != 1:
@@ -878,9 +931,14 @@ class Recoverer(object):
                         else:
                             ext_V0_CG1.dat.data[i] = 0
 
+                    x = SpatialCoordinate(mesh)
+                    VuDG1 = VectorFunctionSpace(mesh, "DG", 1)
+                    coords_DG1 = Function(VuDG1).project(x)
+                    new_ext_coords = find_coords_to_correct(V0_brok, VDG1, VCG1, VCG2, coords_DG1)
+
                     self.boundary_recoverer = Boundary_Recoverer(self.v_out, self.v,
                                                                  ext_DG1=ext_DG1, ext_V0_CG1=ext_V0_CG1,
-                                                                 method='dynamics')
+                                                                 method='dynamics', new_ext_coords=new_ext_coords)
                 elif boundary_method == 'vector':
                     # check dimensions
                     if self.V.value_size != 2 and self.V.value_size != 3:
@@ -906,6 +964,11 @@ class Recoverer(object):
                             else:
                                 ext_V0_VuCG1.dat.data[i][j] = 0
 
+                    x = SpatialCoordinate(mesh)
+                    VuDG1 = VectorFunctionSpace(mesh, "DG", 1)
+                    coords_DG1 = Function(VuDG1).project(x)
+                    new_ext_coords_vec = find_coords_to_correct(V0_brok, VuDG1, VuCG1, VuCG2, coords_DG1)
+
                     # now, break the problem down into components
                     v_scalars = []
                     v_out_scalars = []
@@ -913,15 +976,18 @@ class Recoverer(object):
                     self.boundary_recoverers = []
                     self.project_to_scalars_CG = []
                     self.extra_averagers = []
+                    new_ext_coords_list = []
                     for i in range(self.V.value_size):
                         v_scalars.append(Function(VDG1))
                         v_out_scalars.append(Function(VCG1))
                         ext_V0_CG1s.append(Function(VCG1).project(ext_V0_VuCG1[i]))
+                        new_ext_coords_list.append(Function(VDG1).project(new_ext_coords_vec[i]))
                         self.project_to_scalars_CG.append(Projector(self.v_out[i], v_out_scalars[i]))
                         self.boundary_recoverers.append(Boundary_Recoverer(v_out_scalars[i], v_scalars[i],
                                                                            ext_DG1=ext_DG1,
                                                                            ext_V0_CG1=ext_V0_CG1s[i],
-                                                                           method='dynamics'))
+                                                                           method='dynamics',
+                                                                           new_ext_coords=new_ext_coords_list[i]))
                         # need an extra averager that works on the scalar fields rather than the vector one
                         self.extra_averagers.append(Averager(v_scalars[i], v_out_scalars[i]))
 
@@ -970,3 +1036,164 @@ def find_number_of_exterior_DOFs_per_cell(field, output):
     par_loop(kernel, dx,
              args={"DG0": (output, RW),
                    "ext": (field, READ)})
+
+
+def find_coords_to_correct(V0_brok, DG1, CG1, CG2, coords):
+
+    # make DG1 field with 1 at all exterior coords
+    all_ext_in_DG1 = Function(DG1)
+
+    bcs = [DirichletBC(DG1, Constant(1.0), "top", method="geometric"),
+           DirichletBC(DG1, Constant(1.0), "bottom", method="geometric"),
+           DirichletBC(DG1, Constant(1.0), "on_boundary", method="geometric")]
+
+    for bc in bcs:
+        bc.apply(all_ext_in_DG1)
+
+    # make DG1 field with 1 at coords surrounding exterior coords of V0
+    # first do it in CG2, as this should contain all DOFs of V0 and DG1
+    all_ext_in_CG2 = Function(CG2)
+    bcs = [DirichletBC(CG2, Constant(1.0), "top", method="geometric"),
+           DirichletBC(CG2, Constant(1.0), "bottom", method="geometric"),
+           DirichletBC(CG2, Constant(1.0), "on_boundary", method="geometric")]
+
+    for bc in bcs:
+        bc.apply(all_ext_in_CG2)
+
+    approx_ext_in_V0 = Function(V0_brok).project(all_ext_in_CG2)
+    approx_V0_ext_in_CG1 = Function(CG1).interpolate(approx_ext_in_V0)#is this step necessary?
+
+    # now do horrible hack to get back to 1s and 0s
+    for (i, point) in enumerate(approx_V0_ext_in_CG1.dat.data[:]):
+        try:
+            for (j, p) in enumerate(point):
+                if p > 0.5:
+                    approx_V0_ext_in_CG1.dat.data[i][j] = 1
+                else:
+                    approx_V0_ext_in_CG1.dat.data[i][j] = 0
+        except:
+            if point > 0.5:
+                approx_V0_ext_in_CG1.dat.data[i] = 1
+            else:
+                approx_V0_ext_in_CG1.dat.data[i] = 0
+
+    approx_V0_ext_in_DG1 = Function(DG1).interpolate(approx_V0_ext_in_CG1)
+
+    approx_V0_ext_in_DG1 = Function(DG1).interpolate(approx_ext_in_V0)#is this step necessary?
+
+    # now do horrible hack to get back to 1s and 0s
+    for (i, point) in enumerate(approx_V0_ext_in_DG1.dat.data[:]):
+        try:# this try needs changing to something neater
+            for (j, p) in enumerate(point):
+                if p > 0.5:
+                    approx_V0_ext_in_DG1.dat.data[i][j] = 1
+                else:
+                    approx_V0_ext_in_DG1.dat.data[i][j] = 0
+        except:
+            if point > 0.5:
+                approx_V0_ext_in_DG1.dat.data[i] = 1
+            else:
+                approx_V0_ext_in_DG1.dat.data[i] = 0
+
+    corners_in_DG1 = Function(DG1)
+    if DG1.value_size == 1:
+        ones = Function(DG1).interpolate(Constant(1.0))
+    elif DG1.value_size == 2:
+        ones = Function(DG1).interpolate(as_vector([Constant(1.0), Constant(1.0)]))
+    elif DG1.value_size == 3:
+        ones = Function(DG1).interpolate(as_vector([Constant(1.0), Constant(1.0), Constant(1.0)]))
+    if DG1.mesh().topological_dimension() == 2:
+        if DG1.extruded:
+            DG1_ext_hori = Function(DG1)
+            DG1_ext_vert = Function(DG1)
+            hori_bcs = [DirichletBC(DG1, Constant(1.0), "top", method="geometric"),
+                        DirichletBC(DG1, Constant(1.0), "bottom", method="geometric")]
+            vert_bc = DirichletBC(DG1, Constant(1.0), "on_boundary", method="geometric")
+            for bc in hori_bcs:
+                bc.apply(DG1_ext_hori)
+
+            vert_bc.apply(DG1_ext_vert)
+            corners_in_DG1.assign(DG1_ext_hori + DG1_ext_vert - all_ext_in_DG1)
+
+        else:
+            # we don't know whether its periodic or in how many directions
+            DG1_ext_x = Function(DG1)
+            DG1_ext_y = Function(DG1)
+            x_bcs = [DirichletBC(DG1, Constant(1.0), 1, method="geometric"),
+                     DirichletBC(DG1, Constant(1.0), 2, method="geometric")]
+            y_bcs = [DirichletBC(DG1, Constant(1.0), 3, method="geometric"),
+                     DirichletBC(DG1, Constant(1.0), 4, method="geometric")]
+            try:
+                for bc in x_bcs:
+                    bc.apply(DG1_ext_x)
+            except:
+                pass
+
+            try:
+                for bc in y_bcs:
+                    bc.apply(DG1_ext_y)
+            except:
+                pass
+
+            corners_in_DG1.assign(DG1_ext_x + DG1_ext_y - all_ext_in_DG1)
+
+    elif DG1.mesh().topological_dimension() == 3:
+        DG1_vert_x = Function(DG1)
+        DG1_vert_y = Function(DG1)
+        DG1_hori = Function(DG1)
+        x_bcs = [DirichletBC(DG1, Constant(1.0), 1, method="geometric"),
+                 DirichletBC(DG1, Constant(1.0), 2, method="geometric")]
+        y_bcs = [DirichletBC(DG1, Constant(1.0), 3, method="geometric"),
+                 DirichletBC(DG1, Constant(1.0), 4, method="geometric")]
+        hori_bcs = [DirichletBC(DG1, Constant(1.0), "top", method="geometric"),
+                    DirichletBC(DG1, Constant(1.0), "bottom", method="geometric")]
+        for bc in hori_bcs:
+            bc.apply(DG1_hori)
+
+        for bc in x_bcs:
+            bc.apply(DG1_vert_x)
+
+        for bc in y_bcs:
+            bc.apply(DG1_vert_y)
+
+        try:
+            for bc in x_bcs:
+                bc.apply(DG1_vert_x)
+        except:
+            pass
+
+        try:
+            for bc in y_bcs:
+                bc.apply(DG1_vert_y)
+        except:
+            pass
+
+        corners_in_DG1.assign(DG1_vert_x + DG1_vert_y + DG1_hori - all_ext_in_DG1)
+
+    coords_to_correct = Function(DG1).assign(corners_in_DG1 + all_ext_in_DG1 - approx_V0_ext_in_DG1)
+    for (i, point) in enumerate(coords_to_correct.dat.data[:]):
+        try:
+            for (j, p) in enumerate(point):
+                if p > 0.5:
+                    coords_to_correct.dat.data[i][j] = 1
+                else:
+                    coords_to_correct.dat.data[i][j] = 0
+        except:
+            if point > 0.5:
+                coords_to_correct.dat.data[i] = 1
+            else:
+                coords_to_correct.dat.data[i] = 0
+
+    # for (coord, i) in zip(coords.dat.data[:], coords_to_correct.dat.data[:]):
+    #     if DG1.mesh().topological_dimension() == 2:
+    #         if DG1.value_size == 1:
+    #             print('[%.2f %.2f] %.2f' % (coord[0], coord[1], i))
+    #         elif DG1.value_size == 2:
+    #             print('[%.2f %.2f] %.2f %.2f' % (coord[0], coord[1], i[0], i[1]))
+    #     elif DG1.mesh().topological_dimension() == 3:
+    #         if DG1.value_size == 1:
+    #             print('[%.2f %.2f %.2f] %.2f' % (coord[0], coord[1], coord[2], i))
+    #         elif DG1.value_size == 3:
+    #             print('[%.2f %.2f %.2f] %.2f %.2f %.2f' % (coord[0], coord[1], coord[2], i[0], i[1], i[2]))
+
+    return coords_to_correct
