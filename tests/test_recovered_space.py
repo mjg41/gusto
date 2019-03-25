@@ -2,7 +2,7 @@ from gusto import *
 from firedrake import (as_vector, Constant, PeriodicIntervalMesh,
                        SpatialCoordinate, ExtrudedMesh, FunctionSpace,
                        Function, conditional, sqrt, BrokenElement,
-                       VectorFunctionSpace, errornorm, cos, pi)
+                       VectorFunctionSpace, errornorm, cos, pi, norm)
 
 # This tests the recovered space advection scheme
 # A bubble of air in the rho, theta and u spaces is advected halfway across the domain
@@ -11,8 +11,8 @@ from firedrake import (as_vector, Constant, PeriodicIntervalMesh,
 def run(setup):
 
     state = setup.state
-    tmax = setup.tmax
-    Ld = 10 * setup.Ld
+    tmax = 10 * setup.tmax
+    Ld = setup.Ld
     x, z = SpatialCoordinate(state.mesh)
 
     Vu = state.spaces("HDiv")
@@ -35,10 +35,10 @@ def run(setup):
     theta.assign(280.0)
 
     # set up initial and final conditions
-    xc_i = Ld / 4
-    xc_f = 3 * Ld / 4
-    zc = Ld / 2
-    rc = Ld / 4
+    xc_i = Ld / 4.
+    xc_f = 3. * Ld / 4.
+    zc = Ld / 2.
+    rc = Ld / 4.
     r_i = sqrt((x - xc_i) ** 2 + (z - zc) ** 2)
     r_f = sqrt((x - xc_f) ** 2 + (z - zc) ** 2)
     expr_i = conditional(r_i > rc, 0.0, cos(pi * r_i / (2 * rc)) ** 2)
@@ -78,20 +78,19 @@ def run(setup):
     schemes = [SSPRK3(state, rho_eqn, options=rho_opts),
                SSPRK3(state, theta_eqn, options=theta_opts),
                SSPRK3(state, v_eqn, options=v_opts)]
-    schemes = [SSPRK3(state, rho_eqn, options=rho_opts)]
 
     timestepper = PrescribedAdvectionTimestepper(state, schemes)
     timestepper.run(t=0, tmax=tmax)
 
-    return (errornorm(rho, rho_f),
-            errornorm(theta, theta_f),
-            errornorm(v, v_f))
+    return (errornorm(rho, rho_f) / norm(rho_f),
+            errornorm(theta, theta_f) / norm(theta_f),
+            errornorm(v, v_f) / norm(v_f))
 
 def test_precipitation(tmpdir, moist_setup):
 
     setup = moist_setup(tmpdir, "normal", degree=0)
     rho_error, theta_error, v_error = run(setup)
-    tolerance = 1e-3
+    tolerance = 0.25
     # errors from advection
     assert rho_error < tolerance
     assert theta_error < tolerance
