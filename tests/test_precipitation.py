@@ -17,8 +17,8 @@ def run(setup):
     Ld = setup.Ld
     x, z = SpatialCoordinate(state.mesh)
 
-    u = state.fields("u", space=state.spaces("HDiv"))
-    rho = state.fields("rho", space=state.spaces("DG"))
+    u = state.fields("u", space=state.spaces("HDiv"), dump=False)
+    rho = state.fields("rho", space=state.spaces("DG"), dump=False)
     rain = state.fields("rain", space=state.spaces("HDiv_v"), dump=True)
     rainfall_velocity = state.fields("rainfall_velocity", space=state.spaces("HDiv"))
 

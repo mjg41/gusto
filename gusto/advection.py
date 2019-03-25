@@ -71,6 +71,7 @@ class Advection(object, metaclass=ABCMeta):
             fs = state.fields(field_name).function_space()
 
         self.dt = state.dt
+        self.limiter = limiter
 
         # store the equation an residual
         self.equation = equation
@@ -134,8 +135,6 @@ class Advection(object, metaclass=ABCMeta):
 
         # label the terms explicit or implicit
         self._label_terms()
-
-        self.limiter = limiter
 
     def _extract_labelled_terms(self, *active_labels):
         """
@@ -206,14 +205,13 @@ class Advection(object, metaclass=ABCMeta):
             x_brok = Function(options.broken_space)
 
             # set up interpolators and projectors
-            self.x_rec_projector = Recoverer(self.x_in, x_rec, VDG=fs, boundary_method=options.boundary_method)  # recovered function
+            self.x_rec_projector = Recoverer(self.x_in, x_rec, VDG=options.embedding_space, boundary_method=options.boundary_method)  # recovered function
             self.x_brok_projector = Projector(x_rec, x_brok)  # function projected back
             self.xdg_interpolator = Interpolator(self.x_in + x_rec - x_brok, self.xdg_in)
+
             if self.limiter is not None:
                 self.x_brok_interpolator = Interpolator(self.xdg_out, x_brok)
                 self.x_out_projector = Recoverer(x_brok, self.x_projected)
-                # when the "average" method comes into firedrake master, this will be
-                # self.x_out_projector = Projector(x_brok, self.x_projected, method="average")
 
         elif options.name == "supg":
 

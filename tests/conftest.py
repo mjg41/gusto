@@ -75,7 +75,7 @@ def tracer_blob_slice(tmpdir):
     return TracerSetup(state=state, tmax=1.5, f_init=f_init)
 
 
-def condensation_slice(tmpdir):
+def condensation_slice(tmpdir, degree=1):
 
     dt = 1.0
     Ld = 10.
@@ -85,7 +85,7 @@ def condensation_slice(tmpdir):
     parameters = CompressibleParameters()
 
     state = State(mesh, dt=dt, output=output, parameters=parameters)
-    build_spaces(state, "CG", 1, 1)
+    build_spaces(state, "CG", degree, degree)
 
     return MoistSetup(state=state, tmax=1, Ld=Ld)
 
@@ -125,11 +125,11 @@ def tracer_setup():
 @pytest.fixture()
 def moist_setup():
 
-    def _moist_setup(tmpdir, geometry="normal"):
+    def _moist_setup(tmpdir, geometry="normal", degree=1):
         if geometry == "narrow":
             return precipitation_slice(tmpdir)
         elif geometry == "normal":
-            return condensation_slice(tmpdir)
+            return condensation_slice(tmpdir, degree=degree)
         else:
             raise ValueError('Geometry %s not recognised.' % geometry)
 

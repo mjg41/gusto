@@ -9,7 +9,19 @@ import pytest
 
 # This setup creates a sharp bubble of warm air in a vertical slice
 # This bubble is then advected by a prescribed advection scheme
+# If the limiter is working, the advection should have produced
+# no new maxima or minima.
 
+def run(setup):
+
+    state = setup.state
+    tmax = setup.tmax
+    Ld = setup.Ld
+    x, z = SpatialCoordinate(state.mesh)
+
+    u = state.fields("u", space=state.spaces("HDiv"), dump=True)
+    rho = state.fields("rho", space=state.spaces("DG"), dump=False)
+    
 
 @pytest.fixture
 def grid_params(direction):
