@@ -241,7 +241,7 @@ class Fallout(Physics):
                                        options=advect_options,
                                        limiter=limiter)
         # terms of eqn are on LHS, so need to replace velocity with self.v
-        self.advection_method.replace_advecting_velocity(-self.v)
+        self.advection_method.replace_advecting_velocity(self.v)
 
     def apply(self):
         if self.moments != AdvectedMoments.M0:

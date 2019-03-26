@@ -10,154 +10,114 @@ import pytest
 # This setup creates a sharp bubble of warm air in a vertical slice
 # This bubble is then advected by a prescribed advection scheme
 # If the limiter is working, the advection should have produced
-# no new maxima or minima.
+# no new maxima or minima. Advection is a solid body rotation.
 
 def run(setup):
 
     state = setup.state
-    tmax = setup.tmax
+    tmax = 10 * setup.tmax
     Ld = setup.Ld
     x, z = SpatialCoordinate(state.mesh)
 
-    u = state.fields("u", space=state.spaces("HDiv"), dump=True)
-    rho = state.fields("rho", space=state.spaces("DG"), dump=False)
-    
+    Vu = state.spaces("HDiv")
+    Vr = state.spaces("DG")
+    Vt = state.spaces("HDiv_v")
+    VDG1 = FunctionSpace(state.mesh, "DG", 1)
+    Vpsi = FunctionSpace(state.mesh, "CG", 2)
 
-@pytest.fixture
-def grid_params(direction):
-    "returns L, H, ncolumns, nlayers"
-    if direction == "horizontal":
-        return 400., 400., 40, 40
-    elif direction == "vertical":
-        return 200., 800., 10, 40
+    u = state.fields("u", space=Vu, dump=True)
+    rho = state.fields("rho", space=Vr, dump=True)
+    theta = state.fields("theta", space=Vt, dump=True)
 
+    x_lower = 2 * Ld / 5
+    x_upper = 3 * Ld / 5
+    z_lower = 6 * Ld / 10
+    z_upper = 8 * Ld / 10
+    bubble_expr_1 = conditional(x > x_lower,
+                               conditional(x < x_upper,
+                                           conditional(z > z_lower,
+                                                       conditional(z < z_upper, 1.0, 0.0),
+                                                       0.0),
+                                           0.0),
+                               0.0)
 
-@pytest.fixture
-def ic_params(direction):
-    "returns Tsurf, xc, zc, rc, u_max"
-    if direction == "horizontal":
-        return 300., 200., 200., 100., 10.
-    elif direction == "vertical":
-        return 0., 100., 700., 80., 5.
+    bubble_expr_2 = conditional(x > z_lower,
+                               conditional(x < z_upper,
+                                           conditional(z > x_lower,
+                                                       conditional(z < x_upper, 1.0, 0.0),
+                                                       0.0),
+                                           0.0),
+                               0.0)
 
+    rho.assign(1.0)
+    theta.assign(280.)
+    rho_pert_1 = Function(Vr).interpolate(bubble_expr_1)
+    rho_pert_2 = Function(Vr).interpolate(bubble_expr_2)
+    theta_pert_1 = Function(Vt).interpolate(bubble_expr_1)
+    theta_pert_2 = Function(Vt).interpolate(bubble_expr_2)
 
-def setup_limiters(dirname, direction, grid_params, ic_params):
+    rho.assign(rho + rho_pert_1 + rho_pert_2)
+    theta.assign(theta + theta_pert_1 + theta_pert_2)
 
-    # declare grid shape
-    L, H, ncolumns, nlayers = grid_params
+    # set up solid body rotation for advection
+    xc = Ld / 2
+    zc = Ld / 2
+    r = sqrt((x - xc) ** 2 + (z - zc) ** 2)
+    umax = 0.1
+    omega = umax * sqrt(2) / Ld
+    r_out = 9 * Ld / 20
+    r_in = 2 * Ld / 5
+    A = omega * r_in / (2 * (r_in - r_out))
+    B = - omega * r_in * r_out / (r_in - r_out)
+    C = omega * r_in ** 2 * r_out / (r_in - r_out) / 2
+    psi_expr = conditional(r < r_in,
+                           omega * r ** 2 / 2,
+                           conditional(r < r_out,
+                                       A * r ** 2 + B * r + C,
+                                       A * r_out ** 2 + B * r_out + C))
+    psi = Function(Vpsi).interpolate(psi_expr)
 
-    # make mesh
-    m = PeriodicIntervalMesh(ncolumns, L)
-    mesh = ExtrudedMesh(m, layers=nlayers, layer_height=(H / nlayers))
-    x, z = SpatialCoordinate(mesh)
+    gradperp = lambda v: as_vector([-v.dx(1), v.dx(0)])
+    u.project(gradperp(psi))
 
-    fieldlist = ['u']
-    timestepping = TimesteppingParameters(dt=1.0)
-    output = OutputParameters(dirname=dirname,
-                              dumpfreq=5,
-                              dumplist=['u'],
-                              perturbation_fields=['theta0', 'theta1'])
-    parameters = CompressibleParameters()
+    rho_eqn = AdvectionEquation(state, Vr, "rho")
+    theta_eqn = AdvectionEquation(state, Vt, "theta")
 
-    state = State(mesh, vertical_degree=1, horizontal_degree=1,
-                  family="CG",
-                  timestepping=timestepping,
-                  output=output,
-                  parameters=parameters,
-                  fieldlist=fieldlist)
-
-    # make elements
-    # v is continuous in vertical, h is horizontal
-    cell = mesh._base_mesh.ufl_cell().cellname()
-    DG0_element = FiniteElement("DG", cell, 0)
-    CG1_element = FiniteElement("CG", cell, 1)
-    DG1_element = FiniteElement("DG", cell, 1)
-    CG2_element = FiniteElement("CG", cell, 2)
-    V0_element = TensorProductElement(DG0_element, CG1_element)
-    V1_element = TensorProductElement(DG1_element, CG2_element)
-
-    # spaces
-    VDG1 = FunctionSpace(mesh, "DG", 1)
-    VCG1 = FunctionSpace(mesh, "CG", 1)
-    V0 = FunctionSpace(mesh, V0_element)
-    V1 = FunctionSpace(mesh, V1_element)
-    V0_brok = FunctionSpace(mesh, BrokenElement(V0.ufl_element()))
-
-    # declare initial fields
-    u0 = state.fields("u")
-    theta0 = state.fields("theta0", V0)
-    theta1 = state.fields("theta1", V1)
-    Tsurf, xc, zc, rc, u_max = ic_params
-
-    # Isentropic background state
-    thetab = Constant(Tsurf)
-    theta_b1 = Function(V1).interpolate(thetab)
-    theta_b0 = Function(V0).interpolate(thetab)
-
-    # set up bubble
-    theta_expr = conditional(sqrt((x - xc) ** 2.0) < rc,
-                             conditional(sqrt((z - zc) ** 2.0) < rc,
-                                         Constant(2.0),
-                                         Constant(0.0)), Constant(0.0))
-    theta_pert1 = Function(V1).interpolate(theta_expr)
-    theta_pert0 = Function(V0).interpolate(theta_expr)
-
-    if direction == "horizontal":
-        Vpsi = FunctionSpace(mesh, "CG", 2)
-        psi_expr = - u_max * z
-        psi0 = Function(Vpsi).interpolate(psi_expr)
-        gradperp = lambda u: as_vector([-u.dx(1), u.dx(0)])
-        u0.project(gradperp(psi0))
-    elif direction == "vertical":
-        u0.project(as_vector([0, -u_max]))
-    theta0.interpolate(theta_b0 + theta_pert0)
-    theta1.interpolate(theta_b1 + theta_pert1)
-
-    state.initialise([('u', u0), ('theta1', theta1), ('theta0', theta0)])
-    state.set_reference_profiles([('theta1', theta_b1), ('theta0', theta_b0)])
-
-    # set up advection schemes
-    dg_opts = EmbeddedDGOptions()
-    recovered_opts = RecoveredOptions(embedding_space=VDG1,
-                                      recovered_space=VCG1,
-                                      broken_space=V0_brok)
-    thetaeqn1 = EmbeddedDGAdvection(state, V1, equation_form="advective", options=dg_opts)
-    thetaeqn0 = EmbeddedDGAdvection(state, V0, equation_form="advective", options=recovered_opts)
-
-    # build advection dictionary
-    advected_fields = []
-    advected_fields.append(('theta1', SSPRK3(state, theta1, thetaeqn1, limiter=ThetaLimiter(V1))))
-    advected_fields.append(('theta0', SSPRK3(state, theta0, thetaeqn0, limiter=VertexBasedLimiter(VDG1))))
-
-    # build time stepper
-    stepper = AdvectionDiffusion(state, advected_fields)
-
-    return stepper, 40.0
+    rho_opts = EmbeddedDGOptions(embedding_space=Vr)
+    theta_opts = EmbeddedDGOptions()
 
 
-def run_limiters(dirname, direction, grid_params, ic_params):
+    schemes = [SSPRK3(state, rho_eqn, limiter=VertexBasedLimiter(Vr), options=rho_opts),
+               SSPRK3(state, theta_eqn, limiter=ThetaLimiter(Vt), options=theta_opts)]
 
-    stepper, tmax = setup_limiters(dirname, direction, grid_params, ic_params)
-    stepper.run(t=0, tmax=tmax)
+    timestepper = PrescribedAdvectionTimestepper(state, schemes)
+    timestepper.run(t=0, tmax=tmax)
+
+    return
 
 
-@pytest.mark.parametrize("direction", ["horizontal", "vertical"])
-def test_limiters(tmpdir, direction, grid_params, ic_params):
+def test_limiters(tmpdir, moist_setup):
+
+    setup = moist_setup(tmpdir, "normal", degree=1)
+    run(setup)
 
     dirname = str(tmpdir)
-    run_limiters(dirname, direction, grid_params, ic_params)
     filename = path.join(dirname, "diagnostics.nc")
     data = Dataset(filename, "r")
 
-    theta1 = data.groups["theta1_perturbation"]
-    max_theta1 = theta1.variables["max"]
-    min_theta1 = theta1.variables["min"]
+    rho_data = data.groups["rho"]
+    max_rho = rho_data.variables["max"]
+    min_rho = rho_data.variables["min"]
 
-    theta0 = data.groups["theta0_perturbation"]
-    max_theta0 = theta0.variables["max"]
-    min_theta0 = theta0.variables["min"]
+    theta_data = data.groups["theta"]
+    max_theta = theta_data.variables["max"]
+    min_theta = theta_data.variables["min"]
 
-    assert max_theta1[-1] <= max_theta1[0]
-    assert min_theta1[-1] >= min_theta1[0]
-    assert max_theta0[-1] <= max_theta0[0]
-    assert min_theta0[-1] >= min_theta0[0]
+    tolerance = 0.01
+
+    # check that maxima and minima do not exceed previous maxima and minima
+    # however provide a small amount of tolerance
+    assert max_theta[-1] <= max_theta[0] + (max_theta[0] - min_theta[0]) * tolerance
+    assert min_theta[-1] >= min_theta[0] - (max_theta[0] - min_theta[0]) * tolerance
+    assert max_rho[-1] <= max_rho[0] + (max_rho[0] - min_rho[0]) * tolerance
+    assert min_rho[-1] >= min_rho[0] - (max_rho[0] - min_rho[0]) * tolerance
