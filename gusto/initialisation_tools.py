@@ -387,7 +387,7 @@ def saturated_hydrostatic_balance(state, theta_e, water_t, pi0=None,
                                      water_t=water_t, solve_for_rho=True)
 
 
-def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
+def unsaturated_hydrostatic_balance(state, theta_d, H, water_c=None, pi0=None,
                                     top=False, pi_boundary=Constant(1.0),
                                     max_outer_solve_count=40,
                                     max_inner_solve_count=20):
@@ -405,6 +405,7 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
     :arg state: The :class:`State` object.
     :arg theta_d: The initial dry potential temperature profile.
     :arg H: The relative humidity profile.
+    :arg water_c: an optional cloud water field.
     :arg pi0: Optional function to put exner pressure into.
     :arg top: If True, set a boundary condition at the top, otherwise
               it will be at the bottom.
@@ -456,10 +457,14 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
     RH_ev = thermodynamics.RH(state.parameters, water_v0, T_ev, p_ev)
     RH = Function(Vt)
 
+    water_t = water_v0
+    if water_c is not None:
+        water_t += water_c
+
     for i in range(max_outer_solve_count):
         # solve for rho with theta_vd and w_v guesses
         compressible_hydrostatic_balance(state, theta0, rho_h, top=top,
-                                         pi_boundary=pi_boundary, water_t=water_v0,
+                                         pi_boundary=pi_boundary, water_t=water_t,
                                          solve_for_rho=True)
 
         # damp solution
@@ -495,4 +500,4 @@ def unsaturated_hydrostatic_balance(state, theta_d, H, pi0=None,
     # do one extra solve for rho
     compressible_hydrostatic_balance(state, theta0, rho0, top=top,
                                      pi_boundary=pi_boundary,
-                                     water_t=water_v0, solve_for_rho=True)
+                                     water_t=water_t, solve_for_rho=True)
