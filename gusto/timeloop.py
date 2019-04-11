@@ -24,7 +24,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
     """
 
     def __init__(self, state, advected_fields=None, diffused_fields=None,
-                 physics_list=None, prescribed_fields=None):
+                 physics_list=None, prescribed_fields=None, dumptime=None):
 
         self.state = state
         if advected_fields is None:
@@ -43,6 +43,8 @@ class BaseTimestepper(object, metaclass=ABCMeta):
             self.prescribed_fields = prescribed_fields
         else:
             self.prescribed_fields = []
+
+        self.dumptime = dumptime
 
     @abstractproperty
     def passive_advection(self):
@@ -126,12 +128,19 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                     field = getattr(state.fields, name)
                     diffusion.apply(field, field)
 
+
             with timed_stage("Physics"):
                 for physics in self.physics_list:
+                    if self.dumptime is not None and t > self.dumptime:
+                        state.dump(t)
                     physics.apply()
 
             with timed_stage("Dump output"):
-                state.dump(t)
+                if self.dumptime is not None:
+                    if t > self.dumptime:
+                        state.dump(t)
+                else:
+                    state.dump(t)
 
         if state.output.checkpoint:
             state.chkpt.close()
@@ -159,7 +168,7 @@ class CrankNicolson(BaseTimestepper):
     """
 
     def __init__(self, state, advected_fields, linear_solver, forcing,
-                 diffused_fields=None, physics_list=None, prescribed_fields=None):
+                 diffused_fields=None, physics_list=None, prescribed_fields=None, dumptime=None):
 
         super().__init__(state, advected_fields, diffused_fields, physics_list, prescribed_fields)
         self.linear_solver = linear_solver
