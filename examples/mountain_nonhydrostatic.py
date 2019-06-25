@@ -1,7 +1,7 @@
 from gusto import *
 from firedrake import (FunctionSpace, as_vector, VectorFunctionSpace,
                        PeriodicIntervalMesh, ExtrudedMesh, SpatialCoordinate,
-                       exp, pi, cos, Function, conditional, Mesh, sin, op2)
+                       exp, pi, cos, Function, conditional, Mesh, sin, op2, BrokenElement)
 import sys
 
 dt = 5.0
@@ -10,7 +10,12 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 9000.
 
+if '--recovered' in sys.argv:
+    recovered = True
+else:
+    recovered = False
 
+degree = 0 if recovered else 1
 nlayers = 70  # horizontal layers
 columns = 180  # number of columns
 L = 144000.
@@ -28,6 +33,8 @@ x, z = SpatialCoordinate(ext_mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
+if recovered:
+    dirname += '_recovered'
 smooth_z = True
 dirname = 'nh_mountain'
 if smooth_z:
@@ -51,7 +58,7 @@ fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 
 output = OutputParameters(dirname=dirname,
-                          dumpfreq=18,
+                          dumpfreq=tmax/(1*dt),
                           dumplist=['u'],
                           perturbation_fields=['theta', 'rho'],
                           log_level='INFO')
@@ -60,7 +67,7 @@ parameters = CompressibleParameters(g=9.80665, cp=1004.)
 diagnostics = Diagnostics(*fieldlist)
 diagnostic_fields = [CourantNumber(), VelocityZ()]
 
-state = State(mesh, vertical_degree=1, horizontal_degree=1,
+state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               family="CG",
               sponge_function=mu,
               timestepping=timestepping,
@@ -147,24 +154,48 @@ state.set_reference_profiles([('rho', rho_b),
                               ('theta', theta_b)])
 
 # Set up advection schemes
-ueqn = EulerPoincare(state, Vu)
-rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-supg = True
-if supg:
-    thetaeqn = SUPGAdvection(state, Vt, equation_form="advective")
+if recovered:
+    VDG1 = FunctionSpace(mesh, "DG", 1)
+    VCG1 = FunctionSpace(mesh, "CG", 1)
+    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
+    Vu_DG1 = VectorFunctionSpace(mesh, "DG", 1)
+    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
+    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
+
+    u_opts = RecoveredOptions(embedding_space=Vu_DG1,
+                              recovered_space=Vu_CG1,
+                              broken_space=Vu_brok,
+                              boundary_method=Boundary_Method.dynamics)
+    rho_opts = RecoveredOptions(embedding_space=VDG1,
+                                recovered_space=VCG1,
+                                broken_space=Vr,
+                                boundary_method=Boundary_Method.dynamics)
+    theta_opts = RecoveredOptions(embedding_space=VDG1,
+                                  recovered_space=VCG1,
+                                  broken_space=Vt_brok)
+
+    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", options=u_opts)
+    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", options=rho_opts)
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=theta_opts)
 else:
-    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective",
-                                   options=EmbeddedDGOptions())
-advected_fields = []
-advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
-advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))
-advected_fields.append(("theta", SSPRK3(state, theta0, thetaeqn)))
+    ueqn = EulerPoincare(state, Vu)
+    rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=EmbeddedDGOptions())
+
+advected_fields = [('rho', SSPRK3(state, rho0, rhoeqn)),
+                   ('theta', SSPRK3(state, theta0, thetaeqn))]
+if recovered:
+    advected_fields.append(('u', SSPRK3(state, u0, ueqn)))
+else:
+    advected_fields.append(('u', ThetaMethod(state, u0, ueqn)))
+
+if recovered:
+    compressible_forcing = CompressibleForcing(state, euler_poincare=False)
+else:
+    compressible_forcing = CompressibleForcing(state)
 
 # Set up linear solver
 linear_solver = CompressibleSolver(state)
-
-# Set up forcing
-compressible_forcing = CompressibleForcing(state)
 
 # build time stepper
 stepper = CrankNicolson(state, advected_fields, linear_solver,
