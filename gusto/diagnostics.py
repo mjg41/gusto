@@ -97,7 +97,17 @@ class DiagnosticField(object, metaclass=ABCMeta):
 
     def __call__(self, state):
         return self.compute(state)
+class K_Vector(DiagnosticField):
+    name = "k"
 
+    def setup(self, state):
+        if not self._initialised:
+            space = VectorFunctionSpace(state.mesh, "DG", 1)
+            #space = state.spaces("HDiv")
+            super(K_Vector, self).setup(state, space=space)
+
+    def compute(self, state):
+        return self.field.interpolate(state.k)
 
 class CourantNumber(DiagnosticField):
     name = "CourantNumber"
@@ -136,7 +146,7 @@ class VelocityZ(DiagnosticField):
 
     def setup(self, state):
         if not self._initialised:
-            space = state.spaces("CG1", state.mesh, "CG", 1)
+            space = state.spaces("CG1", state.mesh, "DG", 1)
             super(VelocityZ, self).setup(state, space=space)
 
     def compute(self, state):

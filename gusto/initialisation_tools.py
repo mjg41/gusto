@@ -3,13 +3,14 @@ A module containing some tools for computing initial conditions, such
 as balanced initial conditions.
 """
 
-from firedrake import MixedFunctionSpace, TrialFunctions, TestFunctions, \
-    TestFunction, TrialFunction, SpatialCoordinate, \
-    FacetNormal, inner, div, dx, ds_b, ds_t, ds_tb, DirichletBC, \
-    Function, Constant, assemble, \
-    LinearVariationalProblem, LinearVariationalSolver, \
-    NonlinearVariationalProblem, NonlinearVariationalSolver, split, solve, \
-    sin, cos, sqrt, asin, atan_2, as_vector, Min, Max, FunctionSpace, BrokenElement, errornorm
+from firedrake import (MixedFunctionSpace, TrialFunctions, TestFunctions,
+                       TestFunction, TrialFunction, SpatialCoordinate,
+                       FacetNormal, inner, div, dx, ds_b, ds_t, ds_tb, DirichletBC,
+                       Function, Constant, assemble,
+                       LinearVariationalProblem, LinearVariationalSolver,
+                       NonlinearVariationalProblem, NonlinearVariationalSolver, split, solve,
+                       sin, cos, sqrt, asin, atan_2, as_vector, Min, Max, FunctionSpace,
+                       BrokenElement, errornorm)
 from gusto import thermodynamics
 from gusto.configuration import logger
 from gusto.recovery import Recoverer, Boundary_Method
