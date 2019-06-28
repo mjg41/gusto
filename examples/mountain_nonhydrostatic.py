@@ -15,6 +15,10 @@ if '--recovered' in sys.argv:
 else:
     recovered = False
 
+smooth_z = False
+through_mountain = True
+dirname = 'nh_mountain'
+
 degree = 0 if recovered else 1
 nlayers = 70  # horizontal layers
 columns = 180  # number of columns
@@ -33,10 +37,11 @@ x, z = SpatialCoordinate(ext_mesh)
 hm = 1.
 zs = hm*a**2/((x-xc)**2 + a**2)
 
+if through_mountain:
+    dirname += '_through_mountain'
 if recovered:
     dirname += '_recovered'
-smooth_z = True
-dirname = 'nh_mountain'
+
 if smooth_z:
     dirname += '_smootherz'
     zh = 5000.
