@@ -43,7 +43,7 @@ class TimesteppingParameters(Configuration):
     Timestepping parameters for Gusto
     """
     dt = None
-    alpha = 0.5
+    alpha = 0.0
     maxk = 4
     maxi = 1
 

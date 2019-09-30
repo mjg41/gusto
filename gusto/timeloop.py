@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from pyop2.profiling import timed_stage
+from pyop2 import op2
 from gusto.configuration import logger
 from gusto.linear_solvers import IncompressibleSolver
 
@@ -202,21 +203,28 @@ class CrankNicolson(BaseTimestepper):
                     # advects a field from xstar and puts result in xp
                     advection.apply(self.xstar_fields[name], self.xp_fields[name])
 
-            state.xrhs.assign(0.)  # xrhs is the residual which goes in the linear solve
+            if alpha > 0.0:
+                state.xrhs.assign(0.)  # xrhs is the residual which goes in the linear solve
 
-            for i in range(state.timestepping.maxi):
+                for i in range(state.timestepping.maxi):
 
-                with timed_stage("Apply forcing terms"):
-                    self.forcing.apply(alpha*dt, state.xp, state.xnp1,
-                                       state.xrhs, implicit=True,
-                                       incompressible=self.incompressible)
+                    with timed_stage("Apply forcing terms"):
+                        self.forcing.apply(alpha*dt, state.xp, state.xnp1,
+                                        state.xrhs, implicit=True,
+                                        incompressible=self.incompressible)
 
-                state.xrhs -= state.xnp1
+                    state.xrhs -= state.xnp1
+                    print("DMA in step 1:", state.xnp1.at([1.e5*(13.0/30),1.0e4/2.0]))
 
-                with timed_stage("Implicit solve"):
-                    self.linear_solver.solve()  # solves linear system and places result in state.dy
+                    with timed_stage("Implicit solve"):
+                        self.linear_solver.solve()  # solves linear system and places result in state.dy
 
-                state.xnp1 += state.dy
+                    print("DMA in step 2:", state.xnp1.at([1.e5*(13.0/30),1.0e4/2.0]))
+                    print("DMA in step 2a:", state.dy.at([1.e5*(13.0/30),1.0e4/2.0]))
+
+                    state.xnp1 += state.dy
+
+                    print("DMA in step 3:", state.xnp1.at([1.e5*(13.0/30),1.0e4/2.0]))
 
             self._apply_bcs()
 

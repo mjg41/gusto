@@ -111,6 +111,7 @@ class PointDataOutput(object):
             fields.
         :arg t: Simulation time at which dump occurs.
         """
+        print("DMA: evaluating points at time", t)
 
         val_list = []
         for field_name, points in self.field_points:
@@ -462,6 +463,14 @@ class State(object):
             # Output diagnostic data
             self.diagnostic_output.dump(self, t)
 
+# This runs successfully
+#        if len(output.point_data) > 0 and (t % 12) == 0:
+# This fails
+#        if len(output.point_data) > 0 and t == 6:
+# this fails too
+#        if len(output.point_data) > 0 and t == 18:
+# and this fails
+#        if len(output.point_data) > 0 and t == 30:
         if len(output.point_data) > 0:
             # Output pointwise data
             self.pointdata_output.dump(self.fields, t)

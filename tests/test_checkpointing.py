@@ -18,14 +18,15 @@ def setup_sk(dirname):
 
     # Set up points for output at the centre of the domain, edges and corners.
     # The point at x=L*(13.0/30) is in the halo region for a two-way MPI decomposition
-    points_x = [0.0, L*(13.0/30), L/2.0, L]
-    points_z = [0.0, H/2.0, H]
+#    points_x = [0.0, L*(13.0/30), L/2.0, L]
+    points_x = [L*(13.0/30)]
+    points_z = [H/2.0]
     points = np.array([p for p in itertools.product(points_x, points_z)])
 
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=dt)
     output = OutputParameters(dirname=dirname+"/sk_nonlinear", dumplist=['u'], dumpfreq=5, log_level=INFO,
-                              point_data=[('rho', points), ('u', points)])
+                              point_data=[('rho', points)])
     parameters = CompressibleParameters()
     diagnostic_fields = [CourantNumber()]
 
