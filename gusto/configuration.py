@@ -149,6 +149,7 @@ class EmbeddedDGOptions(AdvectionOptions):
 
     name = "embedded_dg"
     embedding_space = None
+    conservative_density = None
 
 
 class RecoveredOptions(AdvectionOptions):
@@ -158,6 +159,7 @@ class RecoveredOptions(AdvectionOptions):
     recovered_space = None
     broken_space = None
     boundary_method = None
+    conservative_density = None
 
 
 class SUPGOptions(AdvectionOptions):

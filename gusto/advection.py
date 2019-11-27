@@ -1,6 +1,8 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from firedrake import (Function, LinearVariationalProblem,
-                       LinearVariationalSolver, Projector, Interpolator)
+                       LinearVariationalSolver, Projector, Interpolator,
+                       TestFunction, NonlinearVariationalProblem,
+                       NonlinearVariationalSolver, dx)
 from firedrake.utils import cached_property
 from gusto.configuration import logger, DEBUG
 from gusto.recovery import Recoverer
@@ -57,6 +59,9 @@ class Advection(object, metaclass=ABCMeta):
             # get ubar from the equation class
             self.ubar = self.equation.ubar
             self.dt = self.state.timestepping.dt
+            
+            self.x_in = Function(field.function_space()) # so it can be used by another advection scheme
+            self.x_out = Function(field.function_space())
 
             # get default solver options if none passed in
             if solver_parameters is None:
@@ -89,6 +94,17 @@ class Advection(object, metaclass=ABCMeta):
             parameters = {'ksp_type': 'cg',
                           'pc_type': 'bjacobi',
                           'sub_pc_type': 'ilu'}
+        
+        if options.conservative_density is not None:
+            self.conservative_density = options.conservative_density
+            psi = TestFunction(field.function_space())
+            eqn = (psi * self.x_projected * self.conservative_density.x_out * dx
+                   - psi * self.xdg_out * dx)
+            projection_problem = NonlinearVariationalProblem(eqn, self.x_projected)
+            self.projection_solver = NonlinearVariationalSolver(projection_problem)
+        else:
+            self.conservative_density = None
+
 
         if options.name == "embedded_dg":
             if self.limiter is None:
@@ -99,7 +115,6 @@ class Advection(object, metaclass=ABCMeta):
 
         if options.name == "recovered":
             # set up the necessary functions
-            self.x_in = Function(field.function_space())
             x_rec = Function(options.recovered_space)
             x_brok = Function(options.broken_space)
 
@@ -112,6 +127,13 @@ class Advection(object, metaclass=ABCMeta):
                 self.x_out_projector = Recoverer(x_brok, self.x_projected)
             else:
                 self.x_out_projector = Projector(self.xdg_out, self.x_projected)
+        
+            if self.conservative_density is not None:
+                x_dens = Function(options.broken_space)
+                self.make_density = Interpolator(self.x_in * self.conservative_density.x_in, x_dens)
+                self.x_rec_projector = Recoverer(x_dens, x_rec, VDG=self.fs, boundary_method=options.boundary_method)
+                self.xdg_interpolator = Interpolator(x_dens + x_rec - x_brok, self.xdg_in)
+
 
     def pre_apply(self, x_in, discretisation_option):
         """
@@ -122,14 +144,22 @@ class Advection(object, metaclass=ABCMeta):
         :arg x_in: the input set of prognostic fields.
         :arg discretisation option: string specifying which scheme to use.
         """
+        self.x_in.assign(x_in)
         if discretisation_option == "embedded_dg":
             try:
-                self.xdg_in.interpolate(x_in)
+                if self.conservative_density is not None:
+                    self.xdg_in.interpolate(x_in * self.conservative_density.x_in)
+                else:
+                    self.xdg_in.interpolate(x_in)
             except NotImplementedError:
                 self.xdg_in.project(x_in)
+                if self.conservative_density is not None:
+                    raise NotImplementedError
+
 
         elif discretisation_option == "recovered":
-            self.x_in.assign(x_in)
+            if self.conservative_density is not None:
+                self.make_density.interpolate()
             self.x_rec_projector.project()
             self.x_brok_projector.project()
             self.xdg_interpolator.interpolate()
@@ -144,10 +174,16 @@ class Advection(object, metaclass=ABCMeta):
         :arg x_out: the outgoing field.
         :arg discretisation_option: string specifying which option to use.
         """
-        if discretisation_option == "recovered" and self.limiter is not None:
-            self.x_brok_interpolator.interpolate()
-        self.x_out_projector.project()
-        x_out.assign(self.x_projected)
+        if discretisation_option in ["embedded_dg", "recovered"]:
+            if discretisation_option == "recovered" and self.limiter is not None:
+                self.x_brok_interpolator.interpolate()
+            if self.conservative_density is not None:
+                self.projection_solver.solve()
+            else:
+                self.x_out_projector.project()
+            x_out.assign(self.x_projected)
+
+        self.x_out.assign(x_out)
 
     @abstractproperty
     def lhs(self):
@@ -247,11 +283,15 @@ class ExplicitAdvection(Advection):
         :arg x: :class:`.Function` object, the input Function.
         :arg x_out: :class:`.Function` object, the output Function.
         """
+        if not hasattr(self.equation, 'options'):
+            self.x_in.assign(x_in)
         self.x[0].assign(x_in)
         for i in range(self.ncycles):
             self.apply_cycle(self.x[i], self.x[i+1])
             self.x[i].assign(self.x[i+1])
         x_out.assign(self.x[self.ncycles-1])
+        if not hasattr(self.equation, 'options'):
+            self.x_out.assign(x_out)
 
 
 class ForwardEuler(ExplicitAdvection):

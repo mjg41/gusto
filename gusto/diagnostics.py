@@ -2,7 +2,7 @@ from firedrake import op2, assemble, dot, dx, FunctionSpace, Function, sqrt, \
     TestFunction, TrialFunction, Constant, grad, inner, \
     LinearVariationalProblem, LinearVariationalSolver, FacetNormal, \
     ds, ds_b, ds_v, ds_t, dS_v, div, avg, jump, DirichletBC, BrokenElement, \
-    TensorFunctionSpace, SpatialCoordinate, VectorFunctionSpace, as_vector
+    TensorFunctionSpace, SpatialCoordinate, VectorFunctionSpace, as_vector, BrokenElement
 
 from abc import ABCMeta, abstractmethod, abstractproperty
 from gusto import thermodynamics
@@ -17,7 +17,7 @@ __all__ = ["Diagnostics", "CourantNumber", "VelocityX", "VelocityZ", "VelocityY"
            "Perturbation", "Theta_e", "InternalEnergy", "PotentialEnergy",
            "ThermodynamicKineticEnergy", "Dewpoint", "Temperature", "Theta_d",
            "RelativeHumidity", "Pressure", "Pi_Vt", "HydrostaticImbalance", "Precipitation",
-           "PotentialVorticity", "RelativeVorticity", "AbsoluteVorticity"]
+           "PotentialVorticity", "RelativeVorticity", "AbsoluteVorticity", "ThermoDensity"]
 
 
 class Diagnostics(object):
@@ -464,6 +464,30 @@ class Perturbation(Difference):
     @property
     def name(self):
         return self.field1+"_perturbation"
+
+class ThermoDensity(DiagnosticField):
+
+    def __init__(self, thermo_field_name):
+        super().__init__()
+        self.thermo_field_name = thermo_field_name
+
+    @property
+    def name(self):
+        return "rho_times_"+self.thermo_field_name
+
+    def setup(self, state):
+        if not self._initialised:
+            orig_space = state.fields(self.thermo_field_name).function_space()
+            space = FunctionSpace(state.mesh, BrokenElement(orig_space.ufl_element()))
+            super().setup(state, space=space)
+            
+            self.rho = state.fields("rho")
+            self.thermo_field = state.fields(self.thermo_field_name)
+
+    def compute(self, state):
+        
+        return self.field.interpolate(self.rho * self.thermo_field)
+
 
 
 class ThermodynamicDiagnostic(DiagnosticField):
