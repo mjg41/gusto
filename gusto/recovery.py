@@ -183,8 +183,8 @@ class Boundary_Recoverer(object):
                 raise NotImplementedError('The physics boundary method only works on extruded meshes')
             # base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
-            w_hori = FiniteElement("DG", cell, 0, variant="equispaced")
-            w_vert = FiniteElement("CG", interval, 1, variant="equispaced")
+            w_hori = FiniteElement("DG", cell, 0)
+            w_vert = FiniteElement("CG", interval, 1)
             # build element
             theta_element = TensorProductElement(w_hori, w_vert)
             # spaces

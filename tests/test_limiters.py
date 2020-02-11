@@ -35,7 +35,6 @@ def setup_limiters(dirname):
 
     x, z = SpatialCoordinate(mesh)
 
-    Vr = state.spaces("DG")
     Vt = state.spaces("HDiv_v")
     Vpsi = FunctionSpace(mesh, "CG", 2)
 
@@ -46,9 +45,10 @@ def setup_limiters(dirname):
     Vt0 = FunctionSpace(mesh, Vt0_element)
     Vt0_brok = FunctionSpace(mesh, BrokenElement(Vt0_element))
     VCG1 = FunctionSpace(mesh, "CG", 1)
+    VDG1 = state.spaces("DG1")
 
     u = state.fields("u", dump=True)
-    chemical = state.fields("chemical", Vr, dump=True)
+    chemical = state.fields("chemical", VDG1, dump=True)
     moisture_higher = state.fields("moisture_higher", Vt, dump=True)
     moisture_lower = state.fields("moisture_lower", Vt0, dump=True)
 
@@ -74,8 +74,8 @@ def setup_limiters(dirname):
 
     chemical.assign(1.0)
     moisture_higher.assign(280.)
-    chem_pert_1 = Function(Vr).interpolate(bubble_expr_1)
-    chem_pert_2 = Function(Vr).interpolate(bubble_expr_2)
+    chem_pert_1 = Function(VDG1).interpolate(bubble_expr_1)
+    chem_pert_2 = Function(VDG1).interpolate(bubble_expr_2)
     moist_h_pert_1 = Function(Vt).interpolate(bubble_expr_1)
     moist_h_pert_2 = Function(Vt).interpolate(bubble_expr_2)
     moist_l_pert_1 = Function(Vt0).interpolate(bubble_expr_1)
@@ -114,20 +114,20 @@ def setup_limiters(dirname):
 
     # set up advection schemes
     dg_opts = EmbeddedDGOptions()
-    recovered_opts = RecoveredOptions(embedding_space=Vr,
+    recovered_opts = RecoveredOptions(embedding_space=VDG1,
                                       recovered_space=VCG1,
                                       broken_space=Vt0_brok,
                                       boundary_method=Boundary_Method.dynamics)
 
-    chemeqn = AdvectionEquation(state, Vr, equation_form="advective")
+    chemeqn = AdvectionEquation(state, VDG1, equation_form="advective")
     moisteqn_higher = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=dg_opts)
     moisteqn_lower = EmbeddedDGAdvection(state, Vt0, equation_form="advective", options=recovered_opts)
 
     # build advection dictionary
     advected_fields = []
-    advected_fields.append(('chemical', SSPRK3(state, chemical, chemeqn, limiter=VertexBasedLimiter(Vr))))
+    advected_fields.append(('chemical', SSPRK3(state, chemical, chemeqn, limiter=VertexBasedLimiter(VDG1))))
     advected_fields.append(('moisture_higher', SSPRK3(state, moisture_higher, moisteqn_higher, limiter=ThetaLimiter(Vt))))
-    advected_fields.append(('moisture_lower', SSPRK3(state, moisture_lower, moisteqn_lower, limiter=VertexBasedLimiter(Vr))))
+    advected_fields.append(('moisture_lower', SSPRK3(state, moisture_lower, moisteqn_lower, limiter=VertexBasedLimiter(VDG1))))
 
     # build time stepper
     stepper = AdvectionDiffusion(state, advected_fields)

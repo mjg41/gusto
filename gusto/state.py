@@ -515,12 +515,12 @@ class State(object):
         if vertical_degree is not None:
             # horizontal base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
-            S1 = FiniteElement(family, cell, horizontal_degree+1, variant="equispaced")
-            S2 = FiniteElement("DG", cell, horizontal_degree, variant="equispaced")
+            S1 = FiniteElement(family, cell, horizontal_degree+1)
+            S2 = FiniteElement("DG", cell, horizontal_degree)
 
             # vertical base spaces
-            T0 = FiniteElement("CG", interval, vertical_degree+1, variant="equispaced")
-            T1 = FiniteElement("DG", interval, vertical_degree, variant="equispaced")
+            T0 = FiniteElement("CG", interval, vertical_degree+1)
+            T1 = FiniteElement("DG", interval, vertical_degree)
 
             # build spaces V2, V3, Vt
             V2h_elt = HDiv(TensorProductElement(S1, T1))
@@ -544,8 +544,8 @@ class State(object):
 
         else:
             cell = mesh.ufl_cell().cellname()
-            V1_elt = FiniteElement(family, cell, horizontal_degree+1, variant="equispaced")
-            DG_elt = FiniteElement("DG", cell, horizontal_degree, variant="equispaced")
+            V1_elt = FiniteElement(family, cell, horizontal_degree+1)
+            DG_elt = FiniteElement("DG", cell, horizontal_degree)
             DG1_elt = FiniteElement("DG", cell, 1, variant="equispaced")
 
             V0 = self.spaces("HDiv", mesh, V1_elt)
