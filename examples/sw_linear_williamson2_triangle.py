@@ -1,6 +1,6 @@
 from gusto import *
-from firedrake import IcosahedralSphereMesh, SpatialCoordinate, as_vector, \
-    FunctionSpace
+from firedrake import (IcosahedralSphereMesh, SpatialCoordinate,
+                       as_vector, FunctionSpace)
 from math import pi
 import sys
 
@@ -23,7 +23,9 @@ mesh.init_cell_orientations(x)
 
 fieldlist = ['u', 'D']
 timestepping = TimesteppingParameters(dt=dt)
-output = OutputParameters(dirname='sw_linear_w2', steady_state_error_fields=['u', 'D'])
+output = OutputParameters(dirname='sw_linear_w2',
+                          steady_state_error_fields=['u', 'D'],
+                          log_level='INFO')
 parameters = ShallowWaterParameters(H=H)
 diagnostics = Diagnostics(*fieldlist)
 
@@ -56,7 +58,7 @@ D0.interpolate(Dexpr)
 state.initialise([('u', u0),
                   ('D', D0)])
 
-Deqn = LinearAdvection(state, D0.function_space(), state.parameters.H, ibp="once", equation_form="continuity")
+Deqn = LinearAdvection(state, D0.function_space(), state.parameters.H, ibp=IntegrateByParts.ONCE, equation_form="continuity")
 advected_fields = []
 advected_fields.append(("u", NoAdvection(state, u0, None)))
 advected_fields.append(("D", ForwardEuler(state, D0, Deqn)))

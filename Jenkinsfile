@@ -1,6 +1,11 @@
 pipeline {
     agent {
-        label 'linux'
+      docker {
+        image 'firedrakeproject/firedrake-vanilla:latest'
+        label 'firedrakeproject'
+        args '-v /var/run/docker.sock:/var/run/docker.sock'
+        alwaysPull true
+      }
     }
     environment {
         PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -15,14 +20,22 @@ pipeline {
                 }
             }
         }
-        stage('Install Firedrake') {
+        stage('Permissions') {
             steps {
-                sh 'mkdir build'
-                dir('build') {
-                    timestamps {
-                        sh 'curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install'
-                        sh 'python3 ./firedrake-install --disable-ssh --minimal-petsc'
-                    }
+                timestamps {
+                    sh '''
+sudo -u firedrake /bin/bash << Here
+whoami
+cd /home/firedrake
+. /home/firedrake/firedrake/bin/activate
+chmod a+rwx /home/firedrake/firedrake/lib/python*/site-packages
+chmod a+rwx /home/firedrake/firedrake/lib/python*/site-packages/easy-install.pth
+chmod a+rwx /home/firedrake/firedrake/bin
+install -d /home/firedrake/firedrake/.cache
+chmod -R a+rwx /home/firedrake/firedrake/.cache
+firedrake-status
+Here
+'''
                 }
             }
         }
@@ -30,19 +43,9 @@ pipeline {
             steps {
                 timestamps {
                     sh '''
-. build/firedrake/bin/activate
+. /home/firedrake/firedrake/bin/activate
 python -m pip install -r requirements.txt
 python -m pip install -e .
-'''
-                }
-            }
-        }
-        stage('Lint') {
-            steps {
-                timestamps {
-                    sh '''
-. build/firedrake/bin/activate
-make lint
 '''
                 }
             }
@@ -51,9 +54,19 @@ make lint
             steps {
                 timestamps {
                     sh '''
-. build/firedrake/bin/activate
+. /home/firedrake/firedrake/bin/activate
 python $(which firedrake-clean)
-python -m pytest -n 4 -v tests
+python -m pytest -n 12 -v tests
+'''
+                }
+            }
+        }
+        stage('Lint') {
+            steps {
+                timestamps {
+                    sh '''
+. /home/firedrake/firedrake/bin/activate
+make lint
 '''
                 }
             }

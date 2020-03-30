@@ -1,7 +1,7 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, Constant, DirichletBC, pi, cos, Function, sqrt, \
-    conditional
+from firedrake import (PeriodicIntervalMesh, ExtrudedMesh, SpatialCoordinate,
+                       Constant, DirichletBC, pi, cos, Function, sqrt,
+                       conditional)
 import sys
 
 if '--running-tests' in sys.argv:
@@ -11,10 +11,6 @@ else:
     res_dt = {800.: 4., 400.: 2., 200.: 1., 100.: 0.5, 50.: 0.25}
     tmax = 15.*60.
 
-if '--hybridization' in sys.argv:
-    hybridization = True
-else:
-    hybridization = False
 
 L = 51200.
 
@@ -33,13 +29,11 @@ for delta, dt in res_dt.items():
     fieldlist = ['u', 'rho', 'theta']
     timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
 
-    if hybridization:
-        dirname += '_hybridization'
-
     output = OutputParameters(dirname=dirname,
                               dumpfreq=5,
                               dumplist=['u'],
-                              perturbation_fields=['theta', 'rho'])
+                              perturbation_fields=['theta', 'rho'],
+                              log_level='INFO')
 
     parameters = CompressibleParameters()
     diagnostics = Diagnostics(*fieldlist)
@@ -97,21 +91,18 @@ for delta, dt in res_dt.items():
     supg = True
     if supg:
         thetaeqn = SUPGAdvection(state, Vt,
-                                 supg_params={"dg_direction": "horizontal"},
                                  equation_form="advective")
     else:
         thetaeqn = EmbeddedDGAdvection(state, Vt,
-                                       equation_form="advective")
+                                       equation_form="advective",
+                                       options=EmbeddedDGOptions())
     advected_fields = []
     advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
     advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))
     advected_fields.append(("theta", SSPRK3(state, theta0, thetaeqn)))
 
     # Set up linear solver
-    if hybridization:
-        linear_solver = HybridizedCompressibleSolver(state)
-    else:
-        linear_solver = CompressibleSolver(state)
+    linear_solver = CompressibleSolver(state)
 
     # Set up forcing
     compressible_forcing = CompressibleForcing(state)

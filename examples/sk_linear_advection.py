@@ -1,6 +1,6 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, exp, sin, Function, FunctionSpace
+from firedrake import (PeriodicIntervalMesh, ExtrudedMesh,
+                       SpatialCoordinate, exp, sin, Function, FunctionSpace)
 import numpy as np
 import sys
 
@@ -10,10 +10,6 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 3600.
 
-if '--hybridization' in sys.argv:
-    hybridization = True
-else:
-    hybridization = False
 
 nlayers = 50  # horizontal layers
 columns = 50  # number of columns
@@ -28,12 +24,11 @@ fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 
 dirname = 'sk_linear'
-if hybridization:
-    dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
                           dumplist=['u'],
-                          perturbation_fields=['theta', 'rho'])
+                          perturbation_fields=['theta', 'rho'],
+                          log_level='INFO')
 
 parameters = CompressibleParameters()
 
@@ -89,7 +84,7 @@ state.set_reference_profiles([('rho', rho_b),
                               ('theta', theta_b)])
 
 # Set up advection schemes
-rhoeqn = LinearAdvection(state, Vr, qbar=rho_b, ibp="once", equation_form="continuity")
+rhoeqn = LinearAdvection(state, Vr, qbar=rho_b, ibp=IntegrateByParts.ONCE, equation_form="continuity")
 thetaeqn = LinearAdvection(state, Vt, qbar=theta_b)
 advected_fields = []
 advected_fields.append(("u", NoAdvection(state, u0, None)))
@@ -97,10 +92,7 @@ advected_fields.append(("rho", ForwardEuler(state, rho0, rhoeqn)))
 advected_fields.append(("theta", ForwardEuler(state, theta0, thetaeqn)))
 
 # Set up linear solver
-if hybridization:
-    linear_solver = HybridizedCompressibleSolver(state)
-else:
-    linear_solver = CompressibleSolver(state)
+linear_solver = CompressibleSolver(state)
 
 # Set up forcing
 compressible_forcing = CompressibleForcing(state, linear=True)

@@ -1,6 +1,6 @@
 from gusto import *
-from firedrake import as_vector, SpatialCoordinate,\
-    PeriodicRectangleMesh, ExtrudedMesh, exp, sin, Function
+from firedrake import (as_vector, SpatialCoordinate, PeriodicRectangleMesh,
+                       ExtrudedMesh, exp, sin, Function)
 import numpy as np
 import sys
 
@@ -14,10 +14,6 @@ else:
     columns = 150  # number of columns
     tmax = 60000.0
 
-if '--hybridization' in sys.argv:
-    hybridization = True
-else:
-    hybridization = False
 
 L = 6.0e6
 m = PeriodicRectangleMesh(columns, 1, L, 1.e4, quadrilateral=True)
@@ -30,13 +26,12 @@ fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 
 dirname = 'sk_hydrostatic'
-if hybridization:
-    dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
                           dumpfreq=50,
                           dumplist=['u'],
-                          perturbation_fields=['theta', 'rho'])
+                          perturbation_fields=['theta', 'rho'],
+                          log_level='INFO')
 
 parameters = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
@@ -86,8 +81,31 @@ a = 1.0e5
 deltaTheta = 1.0e-2
 theta_pert = deltaTheta*sin(np.pi*z/H)/(1 + (x - L/2)**2/a**2)
 theta0.interpolate(theta_b + theta_pert)
+
 # Calculate hydrostatic Pi
-compressible_hydrostatic_balance(state, theta_b, rho_b, solve_for_rho=True)
+params = {'pc_type': 'fieldsplit',
+          'pc_fieldsplit_type': 'schur',
+          'ksp_type': 'gmres',
+          'ksp_rtol': 1.e-8,
+          'ksp_atol': 1.e-8,
+          'ksp_max_it': 100,
+          'ksp_gmres_restart': 50,
+          'pc_fieldsplit_schur_fact_type': 'FULL',
+          'pc_fieldsplit_schur_precondition': 'selfp',
+          'fieldsplit_0': {'ksp_type': 'cg',
+                           'pc_type': 'bjacobi',
+                           'sub_pc_type': 'ilu'},
+          'fieldsplit_1': {'ksp_type': 'cg',
+                           'pc_type': 'gamg',
+                           'pc_gamg_sym_graph': True,
+                           'mg_levels': {'ksp_type': 'chebyshev',
+                                         'ksp_chebyshev_esteig': True,
+                                         'ksp_max_it': 5,
+                                         'pc_type': 'bjacobi',
+                                         'sub_pc_type': 'ilu'}}}
+compressible_hydrostatic_balance(state, theta_b, rho_b,
+                                 solve_for_rho=True, params=params)
+
 rho0.assign(rho_b)
 u0.project(as_vector([20.0, 0.0, 0.0]))
 
@@ -100,17 +118,14 @@ state.set_reference_profiles([('rho', rho_b),
 # Set up advection schemes
 ueqn = EulerPoincare(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"})
+thetaeqn = SUPGAdvection(state, Vt)
 advected_fields = []
 advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
 advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))
 advected_fields.append(("theta", SSPRK3(state, theta0, thetaeqn)))
 
 # Set up linear solver
-if hybridization:
-    linear_solver = HybridizedCompressibleSolver(state)
-else:
-    linear_solver = CompressibleSolver(state)
+linear_solver = CompressibleSolver(state)
 
 # Set up forcing
 # [0,0,2*omega] cross [u,v,0] = [-2*omega*v, 2*omega*u, 0]

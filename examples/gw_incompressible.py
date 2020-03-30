@@ -1,7 +1,7 @@
 from gusto import *
-from firedrake import as_vector,\
-    VectorFunctionSpace, PeriodicIntervalMesh, ExtrudedMesh, \
-    sin, SpatialCoordinate, Function
+from firedrake import (as_vector, VectorFunctionSpace,
+                       PeriodicIntervalMesh, ExtrudedMesh,
+                       sin, SpatialCoordinate, Function)
 import numpy as np
 import sys
 
@@ -44,7 +44,11 @@ timestepping = TimesteppingParameters(dt=dt)
 # class containing output parameters
 # all values not explicitly set here use the default values provided
 # and documented in configuration.py
-output = OutputParameters(dirname='gw_incompressible', dumpfreq=10, dumplist=['u'], perturbation_fields=['b'])
+output = OutputParameters(dirname='gw_incompressible',
+                          dumpfreq=10,
+                          dumplist=['u'],
+                          perturbation_fields=['b'],
+                          log_level='INFO')
 
 # class containing physical parameters
 # all values not explicitly set here use the default values provided
@@ -125,7 +129,6 @@ ueqn = EulerPoincare(state, Vu)
 supg = True
 if supg:
     beqn = SUPGAdvection(state, Vb,
-                         supg_params={"dg_direction": "horizontal"},
                          equation_form="advective")
 else:
     beqn = EmbeddedDGAdvection(state, Vb,

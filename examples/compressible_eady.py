@@ -1,8 +1,8 @@
 from gusto import *
 from gusto import thermodynamics
-from firedrake import as_vector, SpatialCoordinate,\
-    PeriodicRectangleMesh, ExtrudedMesh, \
-    exp, cos, sin, cosh, sinh, tanh, pi, Function, sqrt
+from firedrake import (as_vector, SpatialCoordinate,
+                       PeriodicRectangleMesh, ExtrudedMesh,
+                       exp, cos, sin, cosh, sinh, tanh, pi, Function, sqrt)
 import sys
 
 day = 24.*60.*60.
@@ -15,10 +15,6 @@ else:
     tmax = 30*day
     tdump = 2*hour
 
-if '--hybridization' in sys.argv:
-    hybridization = True
-else:
-    hybridization = False
 
 ##############################################################################
 # set up mesh
@@ -57,13 +53,12 @@ timestepping = TimesteppingParameters(dt=dt)
 # all values not explicitly set here use the default values provided
 # and documented in configuration.py
 dirname = 'compressible_eady'
-if hybridization:
-    dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
                           dumpfreq=int(tdump/dt),
                           dumplist=['u', 'rho', 'theta'],
-                          perturbation_fields=['rho', 'theta', 'ExnerPi'])
+                          perturbation_fields=['rho', 'theta', 'ExnerPi'],
+                          log_level='INFO')
 
 # class containing physical parameters
 # all values not explicitly set here use the default values provided
@@ -147,9 +142,31 @@ theta_pert = Function(Vt).interpolate(theta_exp)
 theta0.interpolate(theta_b + theta_pert)
 
 # calculate hydrostatic Pi
+piparams = {'pc_type': 'fieldsplit',
+            'pc_fieldsplit_type': 'schur',
+            'ksp_type': 'gmres',
+            'ksp_rtol': 1.e-8,
+            'ksp_atol': 1.e-8,
+            'ksp_max_it': 100,
+            'ksp_gmres_restart': 50,
+            'pc_fieldsplit_schur_fact_type': 'FULL',
+            'pc_fieldsplit_schur_precondition': 'selfp',
+            'fieldsplit_0': {'ksp_type': 'cg',
+                             'pc_type': 'bjacobi',
+                             'sub_pc_type': 'ilu'},
+            'fieldsplit_1': {'ksp_type': 'cg',
+                             'pc_type': 'gamg',
+                             'pc_gamg_sym_graph': True,
+                             'mg_levels': {'ksp_type': 'chebyshev',
+                                           'ksp_chebyshev_esteig': True,
+                                           'ksp_max_it': 5,
+                                           'pc_type': 'bjacobi',
+                                           'sub_pc_type': 'ilu'}}}
 rho_b = Function(Vr)
-compressible_hydrostatic_balance(state, theta_b, rho_b)
-compressible_hydrostatic_balance(state, theta0, rho0)
+compressible_hydrostatic_balance(state, theta_b, rho_b,
+                                 params=piparams)
+compressible_hydrostatic_balance(state, theta0, rho0,
+                                 params=piparams)
 
 # set Pi0
 Pi0 = calculate_Pi0(state, theta0, rho0)
@@ -184,7 +201,7 @@ state.set_reference_profiles([('rho', rho_b),
 # we need a DG funciton space for the embedded DG advection scheme
 ueqn = AdvectionEquation(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"})
+thetaeqn = SUPGAdvection(state, Vt)
 
 advected_fields = []
 advected_fields.append(("u", SSPRK3(state, u0, ueqn)))
@@ -194,40 +211,7 @@ advected_fields.append(("theta", SSPRK3(state, theta0, thetaeqn)))
 ##############################################################################
 # Set up linear solver for the timestepping scheme
 ##############################################################################
-# Set up linear solver
-if hybridization:
-    linear_solver_params = {'ksp_type': 'gmres',
-                            'ksp_rtol': 1.0e-8,
-                            'pc_type': 'gamg',
-                            'pc_gamg_sym_graph': True,
-                            'mg_levels': {'ksp_type': 'richardson',
-                                          'ksp_max_it': 5,
-                                          'pc_type': 'bjacobi',
-                                          'sub_pc_type': 'ilu'}}
-    linear_solver = HybridizedCompressibleSolver(state, solver_parameters=linear_solver_params,
-                                                 overwrite_solver_parameters=True)
-
-else:
-    linear_solver_params = {'pc_type': 'fieldsplit',
-                            'pc_fieldsplit_type': 'schur',
-                            'ksp_type': 'gmres',
-                            'ksp_max_it': 100,
-                            'ksp_gmres_restart': 50,
-                            'pc_fieldsplit_schur_fact_type': 'FULL',
-                            'pc_fieldsplit_schur_precondition': 'selfp',
-                            'fieldsplit_0': {'ksp_type': 'preonly',
-                                             'pc_type': 'bjacobi',
-                                             'sub_pc_type': 'ilu'},
-                            'fieldsplit_1': {'ksp_type': 'preonly',
-                                             'pc_type': 'gamg',
-                                             'pc_gamg_sym_graph': True,
-                                             'mg_levels': {'ksp_type': 'chebyshev',
-                                                           'ksp_chebyshev_esteig': True,
-                                                           'ksp_max_it': 5,
-                                                           'pc_type': 'bjacobi',
-                                                           'sub_pc_type': 'ilu'}}}
-    linear_solver = CompressibleSolver(state, solver_parameters=linear_solver_params,
-                                       overwrite_solver_parameters=True)
+linear_solver = CompressibleSolver(state)
 
 ##############################################################################
 # Set up forcing

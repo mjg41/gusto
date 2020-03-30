@@ -1,9 +1,9 @@
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    SpatialCoordinate, conditional, cos, pi, sqrt, \
-    TestFunction, dx, TrialFunction, Constant, Function, \
-    LinearVariationalProblem, LinearVariationalSolver, DirichletBC, \
-    FunctionSpace, BrokenElement, VectorFunctionSpace
+from firedrake import (IntervalMesh, ExtrudedMesh,
+                       SpatialCoordinate, conditional, cos, pi, sqrt,
+                       TestFunction, dx, TrialFunction, Constant, Function,
+                       LinearVariationalProblem, LinearVariationalSolver, DirichletBC,
+                       FunctionSpace, BrokenElement, VectorFunctionSpace)
 from firedrake.slope_limiter.vertex_based_limiter import VertexBasedLimiter
 import sys
 
@@ -15,36 +15,43 @@ else:
     deltax = 100.
     tmax = 1000.
 
-if '--hybridization' in sys.argv:
-    hybridization = True
+if '--recovered' in sys.argv:
+    recovered = True
 else:
-    hybridization = False
+    recovered = False
+if '--limit' in sys.argv:
+    limit = True
+else:
+    limit = False
+
 
 # make mesh
 L = 10000.
 H = 10000.
 nlayers = int(H/deltax)
 ncolumns = int(L/deltax)
-m = PeriodicIntervalMesh(ncolumns, L)
+m = IntervalMesh(ncolumns, L)
 mesh = ExtrudedMesh(m, layers=nlayers, layer_height=H/nlayers)
 
 # options
-limit = False
 diffusion = False
-recovered = True
 degree = 0 if recovered else 1
 
 fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt, maxk=4, maxi=1)
 
 dirname = 'dry_bf_bubble'
-if hybridization:
-    dirname += '_hybridization'
+
+if recovered:
+    dirname += '_recovered'
+if limit:
+    dirname += '_limit'
 
 output = OutputParameters(dirname=dirname,
                           dumpfreq=20,
                           dumplist=['u'],
-                          perturbation_fields=['theta'])
+                          perturbation_fields=['theta'],
+                          log_level='INFO')
 
 params = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
@@ -57,7 +64,8 @@ state = State(mesh, vertical_degree=degree, horizontal_degree=degree,
               parameters=params,
               diagnostics=diagnostics,
               fieldlist=fieldlist,
-              diagnostic_fields=diagnostic_fields)
+              diagnostic_fields=diagnostic_fields,
+              u_bc_ids=[1, 2])
 
 # Initial conditions
 u0 = state.fields("u")
@@ -68,19 +76,7 @@ theta0 = state.fields("theta")
 Vu = u0.function_space()
 Vt = theta0.function_space()
 Vr = rho0.function_space()
-x = SpatialCoordinate(mesh)
-
-if recovered:
-    VDG1 = FunctionSpace(mesh, "DG", 1)
-    VCG1 = FunctionSpace(mesh, "CG", 1)
-    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
-    Vu_DG1 = VectorFunctionSpace(mesh, "DG", 1)
-    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
-    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
-
-    u_spaces = (Vu_DG1, Vu_CG1, Vu_brok)
-    rho_spaces = (VDG1, VCG1, Vr)
-    theta_spaces = (VDG1, VCG1, Vt_brok)
+x, z = SpatialCoordinate(mesh)
 
 # Define constant theta_e and water_t
 Tsurf = 300.0
@@ -97,10 +93,10 @@ xc = L / 2
 zc = 2000.
 rc = 2000.
 Tdash = 2.0
-theta_pert = Function(Vt).interpolate(conditional(sqrt((x[0] - xc) ** 2 + (x[1] - zc) ** 2) > rc,
-                                                  0.0, Tdash *
-                                                  (cos(pi * sqrt(((x[0] - xc) / rc) ** 2 + ((x[1] - zc) / rc) ** 2) / 2.0))
-                                                  ** 2))
+r = sqrt((x - xc) ** 2 + (z - zc) ** 2)
+theta_pert = Function(Vt).interpolate(conditional(r > rc,
+                                                  0.0,
+                                                  Tdash * (cos(pi * r / (2.0 * rc))) ** 2))
 
 # define initial theta
 theta0.assign(theta_b * (theta_pert / 300.0 + 1.0))
@@ -123,13 +119,32 @@ state.set_reference_profiles([('rho', rho_b),
 
 # Set up advection schemes
 if recovered:
-    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", recovered_spaces=u_spaces)
-    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", recovered_spaces=rho_spaces)
-    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", recovered_spaces=theta_spaces)
+    VDG1 = state.spaces("DG1")
+    VCG1 = FunctionSpace(mesh, "CG", 1)
+    Vt_brok = FunctionSpace(mesh, BrokenElement(Vt.ufl_element()))
+    Vu_DG1 = VectorFunctionSpace(mesh, VDG1.ufl_element())
+    Vu_CG1 = VectorFunctionSpace(mesh, "CG", 1)
+    Vu_brok = FunctionSpace(mesh, BrokenElement(Vu.ufl_element()))
+
+    u_opts = RecoveredOptions(embedding_space=Vu_DG1,
+                              recovered_space=Vu_CG1,
+                              broken_space=Vu_brok,
+                              boundary_method=Boundary_Method.dynamics)
+    rho_opts = RecoveredOptions(embedding_space=VDG1,
+                                recovered_space=VCG1,
+                                broken_space=Vr,
+                                boundary_method=Boundary_Method.dynamics)
+    theta_opts = RecoveredOptions(embedding_space=VDG1,
+                                  recovered_space=VCG1,
+                                  broken_space=Vt_brok)
+
+    ueqn = EmbeddedDGAdvection(state, Vu, equation_form="advective", options=u_opts)
+    rhoeqn = EmbeddedDGAdvection(state, Vr, equation_form="continuity", options=rho_opts)
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=theta_opts)
 else:
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
-    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=EmbeddedDGOptions())
 
 
 # set up limiter
@@ -137,7 +152,7 @@ if limit:
     if recovered:
         limiter = VertexBasedLimiter(VDG1)
     else:
-        limiter = ThetaLimiter(thetaeqn)
+        limiter = ThetaLimiter(Vt)
 else:
     limiter = None
 
@@ -149,10 +164,7 @@ else:
     advected_fields.append(('u', ThetaMethod(state, u0, ueqn)))
 
 # Set up linear solver
-if hybridization:
-    linear_solver = HybridizedCompressibleSolver(state)
-else:
-    linear_solver = CompressibleSolver(state)
+linear_solver = CompressibleSolver(state)
 
 # Set up forcing
 if recovered:

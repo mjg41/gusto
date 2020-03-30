@@ -1,15 +1,15 @@
-from os import path
+from os import path, makedirs
 import itertools
 from netCDF4 import Dataset
+import sys
 import time
-from gusto.diagnostics import Diagnostics, Perturbation, \
-    SteadyStateError
-from firedrake import FiniteElement, TensorProductElement, HDiv, \
-    FunctionSpace, MixedFunctionSpace, VectorFunctionSpace, \
-    interval, Function, Mesh, functionspaceimpl,\
-    File, SpatialCoordinate, sqrt, Constant, inner, \
-    dx, op2, par_loop, READ, WRITE, DumbCheckpoint, \
-    FILE_CREATE, FILE_READ, interpolate, CellNormal, cross, as_vector
+from gusto.diagnostics import Diagnostics, Perturbation, SteadyStateError
+from firedrake import (FiniteElement, TensorProductElement, HDiv, DirichletBC,
+                       FunctionSpace, MixedFunctionSpace, VectorFunctionSpace,
+                       interval, Function, Mesh, functionspaceimpl,
+                       File, SpatialCoordinate, sqrt, Constant, inner,
+                       op2, DumbCheckpoint, FILE_CREATE, FILE_READ, interpolate,
+                       CellNormal, cross, as_vector)
 import numpy as np
 from gusto.configuration import logger, set_log_handler
 
@@ -56,44 +56,53 @@ class FieldCreator(object):
 
 class PointDataOutput(object):
     def __init__(self, filename, ndt, field_points, description,
-                 field_creator, create=True):
+                 field_creator, comm, create=True):
         """Create a dump file that stores fields evaluated at points.
 
         :arg filename: The filename.
         :arg field_points: Iterable of pairs (field_name, evaluation_points).
         :arg description: Description of the simulation.
         :arg field_creator: The field creator (only used to determine
-            datatype of fields).
+            datatype and shape of fields).
         :kwarg create: If False, assume that filename already exists
         """
         # Overwrite on creation.
         self.dump_count = 0
         self.filename = filename
         self.field_points = field_points
+        self.comm = comm
         if not create:
             return
-        with Dataset(filename, "w") as dataset:
-            dataset.description = "Point data for simulation {desc}".format(desc=description)
-            dataset.history = "Created {t}".format(t=time.ctime())
-            # FIXME add versioning information.
-            dataset.source = "Output from Gusto model"
-            # Appendable dimension, timesteps in the model
-            dataset.createDimension("time", ndt+1)
+        if self.comm.rank == 0:
+            with Dataset(filename, "w") as dataset:
+                dataset.description = "Point data for simulation {desc}".format(desc=description)
+                dataset.history = "Created {t}".format(t=time.ctime())
+                # FIXME add versioning information.
+                dataset.source = "Output from Gusto model"
+                # Appendable dimension, timesteps in the model
+                dataset.createDimension("time", None)
 
-            var = dataset.createVariable("time", np.float64, ("time"))
-            var.units = "seconds"
-            # Now create the variable group for each field
-            for field_name, points in field_points:
-                group = dataset.createGroup(field_name)
-                npts, dim = points.shape
-                group.createDimension("points", npts)
-                group.createDimension("geometric_dimension", dim)
-                var = group.createVariable("points", points.dtype,
-                                           ("points", "geometric_dimension"))
-                var[:] = points
-                group.createVariable(field_name,
-                                     field_creator(field_name).dat.dtype,
-                                     ("time", "points"))
+                var = dataset.createVariable("time", np.float64, ("time"))
+                var.units = "seconds"
+                # Now create the variable group for each field
+                for field_name, points in field_points:
+                    group = dataset.createGroup(field_name)
+                    npts, dim = points.shape
+                    group.createDimension("points", npts)
+                    group.createDimension("geometric_dimension", dim)
+                    var = group.createVariable("points", points.dtype,
+                                               ("points", "geometric_dimension"))
+                    var[:] = points
+
+                    # Get the UFL shape of the field
+                    field_shape = field_creator(field_name).ufl_shape
+                    # Number of geometric dimension occurences should be the same as the length of the UFL shape
+                    field_len = len(field_shape)
+                    field_count = field_shape.count(dim)
+                    assert field_len == field_count, "Geometric dimension occurrences do not match UFL shape"
+                    # Create the variable with the required shape
+                    dimensions = ("time", "points") + field_count*("geometric_dimension",)
+                    group.createVariable(field_name, field_creator(field_name).dat.dtype, dimensions)
 
     def dump(self, field_creator, t):
         """Evaluate and dump field data at points.
@@ -102,19 +111,25 @@ class PointDataOutput(object):
             fields.
         :arg t: Simulation time at which dump occurs.
         """
-        with Dataset(self.filename, "a") as dataset:
-            # Add new time index
-            dataset.variables["time"][self.dump_count] = t
-            for field_name, points in self.field_points:
-                vals = np.asarray(field_creator(field_name).at(points))
-                group = dataset.groups[field_name]
-                var = group.variables[field_name]
-                var[self.dump_count, :] = vals
+
+        val_list = []
+        for field_name, points in self.field_points:
+            val_list.append((field_name, np.asarray(field_creator(field_name).at(points))))
+
+        if self.comm.rank == 0:
+            with Dataset(self.filename, "a") as dataset:
+                # Add new time index
+                dataset.variables["time"][self.dump_count] = t
+                for field_name, vals in val_list:
+                    group = dataset.groups[field_name]
+                    var = group.variables[field_name]
+                    var[self.dump_count, :] = vals
+
         self.dump_count += 1
 
 
 class DiagnosticsOutput(object):
-    def __init__(self, filename, diagnostics, description, create=True):
+    def __init__(self, filename, diagnostics, description, comm, create=True):
         """Create a dump file that stores diagnostics.
 
         :arg filename: The filename.
@@ -124,19 +139,21 @@ class DiagnosticsOutput(object):
         """
         self.filename = filename
         self.diagnostics = diagnostics
+        self.comm = comm
         if not create:
             return
-        with Dataset(filename, "w") as dataset:
-            dataset.description = "Diagnostics data for simulation {desc}".format(desc=description)
-            dataset.history = "Created {t}".format(t=time.ctime())
-            dataset.source = "Output from Gusto model"
-            dataset.createDimension("time", None)
-            var = dataset.createVariable("time", np.float64, ("time", ))
-            var.units = "seconds"
-            for name in diagnostics.fields:
-                group = dataset.createGroup(name)
-                for diagnostic in diagnostics.available_diagnostics:
-                    group.createVariable(diagnostic, np.float64, ("time", ))
+        if self.comm.rank == 0:
+            with Dataset(filename, "w") as dataset:
+                dataset.description = "Diagnostics data for simulation {desc}".format(desc=description)
+                dataset.history = "Created {t}".format(t=time.ctime())
+                dataset.source = "Output from Gusto model"
+                dataset.createDimension("time", None)
+                var = dataset.createVariable("time", np.float64, ("time", ))
+                var.units = "seconds"
+                for name in diagnostics.fields:
+                    group = dataset.createGroup(name)
+                    for diagnostic in diagnostics.available_diagnostics:
+                        group.createVariable(diagnostic, np.float64, ("time", ))
 
     def dump(self, state, t):
         """Dump diagnostics.
@@ -144,16 +161,22 @@ class DiagnosticsOutput(object):
         :arg state: The :class:`State` at which to compute the diagnostic.
         :arg t: The current time.
         """
-        with Dataset(self.filename, "a") as dataset:
-            idx = dataset.dimensions["time"].size
-            dataset.variables["time"][idx:idx + 1] = t
-            for name in self.diagnostics.fields:
-                field = state.fields(name)
-                group = dataset.groups[name]
-                for dname in self.diagnostics.available_diagnostics:
-                    diagnostic = getattr(self.diagnostics, dname)
+
+        diagnostics = []
+        for fname in self.diagnostics.fields:
+            field = state.fields(fname)
+            for dname in self.diagnostics.available_diagnostics:
+                diagnostic = getattr(self.diagnostics, dname)
+                diagnostics.append((fname, dname, diagnostic(field)))
+
+        if self.comm.rank == 0:
+            with Dataset(self.filename, "a") as dataset:
+                idx = dataset.dimensions["time"].size
+                dataset.variables["time"][idx:idx + 1] = t
+                for fname, dname, value in diagnostics:
+                    group = dataset.groups[fname]
                     var = group.variables[dname]
-                    var[idx:idx + 1] = diagnostic(field)
+                    var[idx:idx + 1] = value
 
 
 class State(object):
@@ -180,6 +203,9 @@ class State(object):
     :arg diagnostics: class containing diagnostic methods
     :arg fieldlist: list of prognostic field names
     :arg diagnostic_fields: list of diagnostic field classes
+    :arg u_bc_ids: a list containing the ids of boundaries with no normal
+                   component of velocity. These ids are passed to `DirichletBC`s. For
+                   extruded meshes, top and bottom are added automatically.
     """
 
     def __init__(self, mesh, vertical_degree=None, horizontal_degree=1,
@@ -191,7 +217,8 @@ class State(object):
                  parameters=None,
                  diagnostics=None,
                  fieldlist=None,
-                 diagnostic_fields=None):
+                 diagnostic_fields=None,
+                 u_bc_ids=None):
 
         self.family = family
         self.vertical_degree = vertical_degree
@@ -217,6 +244,10 @@ class State(object):
             self.diagnostic_fields = diagnostic_fields
         else:
             self.diagnostic_fields = []
+        if u_bc_ids is not None:
+            self.u_bc_ids = u_bc_ids
+        else:
+            self.u_bc_ids = []
 
         # The mesh
         self.mesh = mesh
@@ -229,6 +260,15 @@ class State(object):
         if self.output.dumplist is None:
             self.output.dumplist = fieldlist
         self.fields = FieldCreator(fieldlist, self.xn, self.output.dumplist)
+
+        # set up bcs
+        V = self.fields('u').function_space()
+        self.bcs = []
+        if V.extruded:
+            self.bcs.append(DirichletBC(V, 0.0, "bottom"))
+            self.bcs.append(DirichletBC(V, 0.0, "top"))
+        for id in self.u_bc_ids:
+            self.bcs.append(DirichletBC(V, 0.0, id))
 
         self.dumpfile = None
 
@@ -284,11 +324,15 @@ class State(object):
             f = SteadyStateError(self, name)
             self.diagnostic_fields.append(f)
 
+        fields = set([f.name() for f in self.fields])
+        field_deps = [(d, sorted(set(d.required_fields).difference(fields),)) for d in self.diagnostic_fields]
+        schedule = topo_sort(field_deps)
+        self.diagnostic_fields = schedule
         for diagnostic in self.diagnostic_fields:
             diagnostic.setup(self)
             self.diagnostics.register(diagnostic.name)
 
-    def setup_dump(self, tmax, pickup=False):
+    def setup_dump(self, t, tmax, pickup=False):
         """
         Setup dump files
         Check for existence of directory so as not to overwrite
@@ -299,18 +343,34 @@ class State(object):
         :arg pickup: recover state from the checkpointing file if true,
         otherwise dump and checkpoint to disk. (default is False).
         """
-        self.dumpdir = path.join("results", self.output.dirname)
-        outfile = path.join(self.dumpdir, "field_output.pvd")
-        if self.mesh.comm.rank == 0 and "pytest" not in self.output.dirname \
-           and path.exists(self.dumpdir) and not pickup:
-            raise IOError("results directory '%s' already exists" % self.dumpdir)
-        self.dumpcount = itertools.count()
-        self.dumpfile = File(outfile, project_output=self.output.project_fields, comm=self.mesh.comm)
-        if self.output.checkpoint and not pickup:
-            self.chkpt = DumbCheckpoint(path.join(self.dumpdir, "chkpt"), mode=FILE_CREATE)
 
-        # make list of fields to dump
-        self.to_dump = [field for field in self.fields if field.dump]
+        if any([self.output.dump_vtus, self.output.dumplist_latlon,
+                self.output.dump_diagnostics, self.output.point_data,
+                self.output.checkpoint and not pickup]):
+            # setup output directory and check that it does not already exist
+            self.dumpdir = path.join("results", self.output.dirname)
+            running_tests = '--running-tests' in sys.argv or "pytest" in self.output.dirname
+            if self.mesh.comm.rank == 0:
+                if not running_tests and path.exists(self.dumpdir) and not pickup:
+                    raise IOError("results directory '%s' already exists"
+                                  % self.dumpdir)
+                else:
+                    if not running_tests:
+                        makedirs(self.dumpdir)
+
+        if self.output.dump_vtus:
+
+            # setup pvd output file
+            outfile = path.join(self.dumpdir, "field_output.pvd")
+            self.dumpfile = File(
+                outfile, project_output=self.output.project_fields,
+                comm=self.mesh.comm)
+
+            # make list of fields to dump
+            self.to_dump = [field for field in self.fields if field.dump]
+
+            # make dump counter
+            self.dumpcount = itertools.count()
 
         # if there are fields to be dumped in latlon coordinates,
         # setup the latlon coordinate mesh and make output file
@@ -321,15 +381,15 @@ class State(object):
                                     project_output=self.output.project_fields,
                                     comm=self.mesh.comm)
 
-        # make list of fields to pickup (this doesn't include diagnostic fields)
-        self.to_pickup = [field for field in self.fields if field.pickup]
-
-        # make functions on latlon mesh, as specified by dumplist_latlon
-        self.to_dump_latlon = []
-        for name in self.output.dumplist_latlon:
-            f = self.fields(name)
-            field = Function(functionspaceimpl.WithGeometry(f.function_space(), mesh_ll), val=f.topological, name=name+'_ll')
-            self.to_dump_latlon.append(field)
+            # make functions on latlon mesh, as specified by dumplist_latlon
+            self.to_dump_latlon = []
+            for name in self.output.dumplist_latlon:
+                f = self.fields(name)
+                field = Function(
+                    functionspaceimpl.WithGeometry(
+                        f.function_space(), mesh_ll),
+                    val=f.topological, name=name+'_ll')
+                self.to_dump_latlon.append(field)
 
         # we create new netcdf files to write to, unless pickup=True, in
         # which case we just need the filenames
@@ -338,68 +398,87 @@ class State(object):
             self.diagnostic_output = DiagnosticsOutput(diagnostics_filename,
                                                        self.diagnostics,
                                                        self.output.dirname,
+                                                       self.mesh.comm,
                                                        create=not pickup)
 
         if len(self.output.point_data) > 0:
             pointdata_filename = self.dumpdir+"/point_data.nc"
-
             ndt = int(tmax/self.timestepping.dt)
             self.pointdata_output = PointDataOutput(pointdata_filename, ndt,
                                                     self.output.point_data,
                                                     self.output.dirname,
                                                     self.fields,
+                                                    self.mesh.comm,
                                                     create=not pickup)
 
-    def dump(self, t=0, pickup=False):
+        # if we want to checkpoint and are not picking up from a previous
+        # checkpoint file, setup the dumb checkpointing
+        if self.output.checkpoint and not pickup:
+            self.chkpt = DumbCheckpoint(path.join(self.dumpdir, "chkpt"),
+                                        mode=FILE_CREATE)
+            # make list of fields to pickup (this doesn't include
+            # diagnostic fields)
+            self.to_pickup = [field for field in self.fields if field.pickup]
+
+        # if we want to checkpoint then make a checkpoint counter
+        if self.output.checkpoint:
+            self.chkptcount = itertools.count()
+
+        # dump initial fields
+        self.dump(t)
+
+    def pickup_from_checkpoint(self):
         """
-        Dump output
         :arg t: the current model time (default is zero).
-        :arg pickup: recover state from the checkpointing file if true,
-        otherwise dump and checkpoint to disk. (default is False).
         """
-        if pickup:
-            if self.output.checkpoint:
-                # Open the checkpointing file for writing
-                chkfile = path.join(self.dumpdir, "chkpt")
-                with DumbCheckpoint(chkfile, mode=FILE_READ) as chk:
-                    # Recover all the fields from the checkpoint
-                    for field in self.to_pickup:
-                        chk.load(field)
-                    t = chk.read_attribute("/", "time")
-                    next(self.dumpcount)
-                # Setup new checkpoint
-                self.chkpt = DumbCheckpoint(path.join(self.dumpdir, "chkpt"), mode=FILE_CREATE)
-            else:
-                raise NotImplementedError("Must set checkpoint True if pickup")
-        else:
-
-            if self.output.dump_diagnostics:
-                # Compute diagnostic fields
-                for field in self.diagnostic_fields:
-                    field(self)
-
-                # Output diagnostic data
-                self.diagnostic_output.dump(self, t)
-
-            if len(self.output.point_data) > 0:
-                # Output pointwise data
-                self.pointdata_output.dump(self.fields, t)
-
-            # Dump all the fields to the checkpointing file (backup version)
-            if self.output.checkpoint:
+        if self.output.checkpoint:
+            # Open the checkpointing file for writing
+            chkfile = path.join(self.dumpdir, "chkpt")
+            with DumbCheckpoint(chkfile, mode=FILE_READ) as chk:
+                # Recover all the fields from the checkpoint
                 for field in self.to_pickup:
-                    self.chkpt.store(field)
-                self.chkpt.write_attribute("/", "time", t)
-
-            if (next(self.dumpcount) % self.output.dumpfreq) == 0:
-                # dump fields
-                self.dumpfile.write(*self.to_dump)
-
-                # dump fields on latlon mesh
-                if len(self.output.dumplist_latlon) > 0:
-                    self.dumpfile_ll.write(*self.to_dump_latlon)
+                    chk.load(field)
+                t = chk.read_attribute("/", "time")
+                next(self.dumpcount)
+            # Setup new checkpoint
+            self.chkpt = DumbCheckpoint(path.join(self.dumpdir, "chkpt"), mode=FILE_CREATE)
+        else:
+            raise ValueError("Must set checkpoint True if pickup")
 
         return t
+
+    def dump(self, t):
+        """
+        Dump output
+        """
+        output = self.output
+
+        # Diagnostics:
+        # Compute diagnostic fields
+        for field in self.diagnostic_fields:
+            field(self)
+
+        if output.dump_diagnostics:
+            # Output diagnostic data
+            self.diagnostic_output.dump(self, t)
+
+        if len(output.point_data) > 0:
+            # Output pointwise data
+            self.pointdata_output.dump(self.fields, t)
+
+        # Dump all the fields to the checkpointing file (backup version)
+        if output.checkpoint and (next(self.chkptcount) % output.chkptfreq) == 0:
+            for field in self.to_pickup:
+                self.chkpt.store(field)
+            self.chkpt.write_attribute("/", "time", t)
+
+        if output.dump_vtus and (next(self.dumpcount) % output.dumpfreq) == 0:
+            # dump fields
+            self.dumpfile.write(*self.to_dump)
+
+            # dump fields on latlon mesh
+            if len(output.dumplist_latlon) > 0:
+                self.dumpfile_ll.write(*self.to_dump_latlon)
 
     def initialise(self, initial_conditions):
         """
@@ -436,12 +515,12 @@ class State(object):
         if vertical_degree is not None:
             # horizontal base spaces
             cell = mesh._base_mesh.ufl_cell().cellname()
-            S1 = FiniteElement(family, cell, horizontal_degree+1)
-            S2 = FiniteElement("DG", cell, horizontal_degree)
+            S1 = FiniteElement(family, cell, horizontal_degree+1, variant="equispaced")
+            S2 = FiniteElement("DG", cell, horizontal_degree, variant="equispaced")
 
             # vertical base spaces
-            T0 = FiniteElement("CG", interval, vertical_degree+1)
-            T1 = FiniteElement("DG", interval, vertical_degree)
+            T0 = FiniteElement("CG", interval, vertical_degree+1, variant="equispaced")
+            T1 = FiniteElement("DG", interval, vertical_degree, variant="equispaced")
 
             # build spaces V2, V3, Vt
             V2h_elt = HDiv(TensorProductElement(S1, T1))
@@ -456,14 +535,22 @@ class State(object):
 
             self.Vv = self.spaces("Vv", mesh, V2v_elt)
 
+            DG1_hori_elt = FiniteElement("DG", cell, 1, variant="equispaced")
+            DG1_vert_elt = FiniteElement("DG", interval, 1, variant="equispaced")
+            DG1_elt = TensorProductElement(DG1_hori_elt, DG1_vert_elt)
+            self.DG1_space = self.spaces("DG1", mesh, DG1_elt)
+
             self.W = MixedFunctionSpace((V0, V1, V2))
 
         else:
             cell = mesh.ufl_cell().cellname()
-            V1_elt = FiniteElement(family, cell, horizontal_degree+1)
+            V1_elt = FiniteElement(family, cell, horizontal_degree+1, variant="equispaced")
+            DG_elt = FiniteElement("DG", cell, horizontal_degree, variant="equispaced")
+            DG1_elt = FiniteElement("DG", cell, 1, variant="equispaced")
 
             V0 = self.spaces("HDiv", mesh, V1_elt)
-            V1 = self.spaces("DG", mesh, "DG", horizontal_degree)
+            V1 = self.spaces("DG", mesh, DG_elt)
+            self.DG1_space = self.spaces("DG1", mesh, DG1_elt)
 
             self.W = MixedFunctionSpace((V0, V1))
 
@@ -484,49 +571,89 @@ class State(object):
 
 def get_latlon_mesh(mesh):
     coords_orig = mesh.coordinates
-    mesh_dg_fs = VectorFunctionSpace(mesh, "DG", 1)
-    coords_dg = Function(mesh_dg_fs)
-    coords_latlon = Function(mesh_dg_fs)
-    par_loop("""
-for (int i=0; i<3; i++) {
-    for (int j=0; j<3; j++) {
-        dg[i][j] = cg[i][j];
-    }
-}
-""", dx, {'dg': (coords_dg, WRITE),
-          'cg': (coords_orig, READ)})
+    coords_fs = coords_orig.function_space()
 
+    if coords_fs.extruded:
+        cell = mesh._base_mesh.ufl_cell().cellname()
+        DG1_hori_elt = FiniteElement("DG", cell, 1, variant="equispaced")
+        DG1_vert_elt = FiniteElement("DG", interval, 1, variant="equispaced")
+        DG1_elt = TensorProductElement(DG1_hori_elt, DG1_vert_elt)
+    else:
+        cell = mesh.ufl_cell().cellname()
+        DG1_elt = FiniteElement("DG", cell, 1, variant="equispaced")
+    vec_DG1 = VectorFunctionSpace(mesh, DG1_elt)
+    coords_dg = Function(vec_DG1).interpolate(coords_orig)
+    coords_latlon = Function(vec_DG1)
+    shapes = {"nDOFs": vec_DG1.finat_element.space_dimension(), 'dim': 3}
+
+    radius = np.min(np.sqrt(coords_dg.dat.data[:, 0]**2 + coords_dg.dat.data[:, 1]**2 + coords_dg.dat.data[:, 2]**2))
     # lat-lon 'x' = atan2(y, x)
     coords_latlon.dat.data[:, 0] = np.arctan2(coords_dg.dat.data[:, 1], coords_dg.dat.data[:, 0])
     # lat-lon 'y' = asin(z/sqrt(x^2 + y^2 + z^2))
     coords_latlon.dat.data[:, 1] = np.arcsin(coords_dg.dat.data[:, 2]/np.sqrt(coords_dg.dat.data[:, 0]**2 + coords_dg.dat.data[:, 1]**2 + coords_dg.dat.data[:, 2]**2))
-    coords_latlon.dat.data[:, 2] = 0.0
+    # our vertical coordinate is radius - the minimum radius
+    coords_latlon.dat.data[:, 2] = np.sqrt(coords_dg.dat.data[:, 0]**2 + coords_dg.dat.data[:, 1]**2 + coords_dg.dat.data[:, 2]**2) - radius
 
+# We need to ensure that all points in a cell are on the same side of the branch cut in longitude coords
+# This kernel amends the longitude coords so that all longitudes in one cell are close together
     kernel = op2.Kernel("""
 #define PI 3.141592653589793
 #define TWO_PI 6.283185307179586
-void splat_coords(double **coords) {
-    double diff0 = (coords[0][0] - coords[1][0]);
-    double diff1 = (coords[0][0] - coords[2][0]);
-    double diff2 = (coords[1][0] - coords[2][0]);
+void splat_coords(double *coords) {{
+    double max_diff = 0.0;
+    double diff = 0.0;
 
-    if (fabs(diff0) > PI || fabs(diff1) > PI || fabs(diff2) > PI) {
-        const int sign0 = coords[0][0] < 0 ? -1 : 1;
-        const int sign1 = coords[1][0] < 0 ? -1 : 1;
-        const int sign2 = coords[2][0] < 0 ? -1 : 1;
-        if (sign0 < 0) {
-            coords[0][0] += TWO_PI;
-        }
-        if (sign1 < 0) {
-            coords[1][0] += TWO_PI;
-        }
-        if (sign2 < 0) {
-            coords[2][0] += TWO_PI;
-        }
-    }
-}
-""", "splat_coords")
+    for (int i=0; i<{nDOFs}; i++) {{
+        for (int j=0; j<{nDOFs}; j++) {{
+            diff = coords[i*{dim}] - coords[j*{dim}];
+            if (fabs(diff) > max_diff) {{
+                max_diff = diff;
+            }}
+        }}
+    }}
+
+    if (max_diff > PI) {{
+        for (int i=0; i<{nDOFs}; i++) {{
+            if (coords[i*{dim}] < 0) {{
+                coords[i*{dim}] += TWO_PI;
+            }}
+        }}
+    }}
+}}
+""".format(**shapes), "splat_coords")
 
     op2.par_loop(kernel, coords_latlon.cell_set,
                  coords_latlon.dat(op2.RW, coords_latlon.cell_node_map()))
     return Mesh(coords_latlon)
+
+
+def topo_sort(field_deps):
+    name2field = dict((f.name, f) for f, _ in field_deps)
+    # map node: (input_deps, output_deps)
+    graph = dict((f.name, (list(deps), [])) for f, deps in field_deps)
+    roots = []
+    for f, input_deps in field_deps:
+        if len(input_deps) == 0:
+            # No dependencies, candidate for evaluation
+            roots.append(f.name)
+        for d in input_deps:
+            # add f as output dependency
+            graph[d][1].append(f.name)
+
+    schedule = []
+    while roots:
+        n = roots.pop()
+        schedule.append(n)
+        output_deps = list(graph[n][1])
+        for m in output_deps:
+            # Remove edge
+            graph[m][0].remove(n)
+            graph[n][1].remove(m)
+            # If m now as no input deps, candidate for evaluation
+            if len(graph[m][0]) == 0:
+                roots.append(m)
+    if any(len(i) for i, _ in graph.values()):
+        cycle = "\n".join("%s -> %s" % (f, i) for f, (i, _) in graph.items()
+                          if f not in schedule)
+        raise RuntimeError("Field dependencies have a cycle:\n\n%s" % cycle)
+    return list(map(name2field.__getitem__, schedule))

@@ -1,7 +1,7 @@
 from gusto import *
-from firedrake import as_vector, SpatialCoordinate, \
-    PeriodicRectangleMesh, ExtrudedMesh, \
-    cos, sin, cosh, sinh, tanh, pi, Function, sqrt
+from firedrake import (as_vector, SpatialCoordinate,
+                       PeriodicRectangleMesh, ExtrudedMesh,
+                       cos, sin, cosh, sinh, tanh, pi, Function, sqrt)
 import sys
 
 day = 24.*60.*60.
@@ -60,7 +60,8 @@ timestepping = TimesteppingParameters(dt=dt)
 output = OutputParameters(dirname='incompressible_eady',
                           dumpfreq=int(tdump/dt),
                           dumplist=['u', 'p', 'b'],
-                          perturbation_fields=['p', 'b'])
+                          perturbation_fields=['p', 'b'],
+                          log_level='INFO')
 
 # class containing physical parameters
 # all values not explicitly set here use the default values provided
@@ -172,11 +173,11 @@ ueqn = AdvectionEquation(state, Vu)
 supg = True
 if supg:
     beqn = SUPGAdvection(state, Vb,
-                         supg_params={"dg_direction": "horizontal"},
                          equation_form="advective")
 else:
     beqn = EmbeddedDGAdvection(state, Vb,
-                               equation_form="advective")
+                               equation_form="advective",
+                               options=EmbeddedDGOptions())
 advected_fields = []
 advected_fields.append(("u", SSPRK3(state, u0, ueqn)))
 advected_fields.append(("b", SSPRK3(state, b0, beqn)))

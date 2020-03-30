@@ -1,8 +1,8 @@
 from os import path
 from gusto import *
-from firedrake import as_vector, Constant, sin, PeriodicIntervalMesh, \
-    SpatialCoordinate, ExtrudedMesh, FunctionSpace, Function, sqrt, \
-    conditional, cos
+from firedrake import (as_vector, Constant, sin, PeriodicIntervalMesh,
+                       SpatialCoordinate, ExtrudedMesh, FunctionSpace,
+                       Function, sqrt, conditional, cos)
 from netCDF4 import Dataset
 from math import pi
 
@@ -18,6 +18,8 @@ def setup_condens(dirname):
     H = 1000.
     nlayers = int(H / 100.)
     ncolumns = int(L / 100.)
+
+    tmax = 10.0
 
     # make mesh
     m = PeriodicIntervalMesh(ncolumns, L)
@@ -75,14 +77,18 @@ def setup_condens(dirname):
     w_expr = conditional(r > rc, 0., 0.25*(1. + cos((pi/rc)*r)))
 
     # set up velocity field
-    u_max = 10.0
+    u_max = 20.0
 
-    psi_expr = ((-u_max * L / pi) *
-                sin(2 * pi * x[0] / L) *
-                sin(pi * x[1] / L))
+    def u_evaluation(t):
+        psi_expr = ((-u_max * L / pi)
+                    * sin(2 * pi * x[0] / L)
+                    * sin(pi * x[1] / L)) * sin(2 * pi * t / tmax)
 
-    psi0 = Function(Vpsi).interpolate(psi_expr)
-    u0.project(gradperp(psi0))
+        psi0 = Function(Vpsi).interpolate(psi_expr)
+
+        return gradperp(psi0)
+
+    u0.project(u_evaluation(0))
     theta0.interpolate(theta_b)
     rho0.interpolate(rho_b)
     water_v0.interpolate(w_expr)
@@ -98,7 +104,6 @@ def setup_condens(dirname):
     # set up advection schemes
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
     thetaeqn = SUPGAdvection(state, Vt,
-                             supg_params={"dg_direction": "horizontal"},
                              equation_form="advective")
 
     # build advection dictionary
@@ -109,12 +114,13 @@ def setup_condens(dirname):
     advected_fields.append(("water_v", SSPRK3(state, water_v0, thetaeqn)))
     advected_fields.append(("water_c", SSPRK3(state, water_c0, thetaeqn)))
 
+    prescribed_fields = [('u', u_evaluation)]
     physics_list = [Condensation(state)]
 
     # build time stepper
-    stepper = AdvectionDiffusion(state, advected_fields, physics_list=physics_list)
+    stepper = AdvectionDiffusion(state, advected_fields, physics_list=physics_list, prescribed_fields=prescribed_fields)
 
-    return stepper, 5.0
+    return stepper, tmax
 
 
 def run_condens(dirname):

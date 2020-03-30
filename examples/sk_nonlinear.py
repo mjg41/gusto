@@ -1,7 +1,7 @@
 from gusto import *
 import itertools
-from firedrake import as_vector, SpatialCoordinate, PeriodicIntervalMesh, \
-    ExtrudedMesh, exp, sin, Function
+from firedrake import (as_vector, SpatialCoordinate, PeriodicIntervalMesh,
+                       ExtrudedMesh, exp, sin, Function)
 import numpy as np
 import sys
 
@@ -11,10 +11,6 @@ if '--running-tests' in sys.argv:
 else:
     tmax = 3600.
 
-if '--hybridization' in sys.argv:
-    hybridization = True
-else:
-    hybridization = False
 
 nlayers = 10  # horizontal layers
 columns = 150  # number of columns
@@ -33,18 +29,20 @@ fieldlist = ['u', 'rho', 'theta']
 timestepping = TimesteppingParameters(dt=dt)
 
 dirname = 'sk_nonlinear'
-if hybridization:
-    dirname += '_hybridization'
 
 output = OutputParameters(dirname=dirname,
                           dumpfreq=1,
                           dumplist=['u'],
                           perturbation_fields=['theta', 'rho'],
-                          point_data=[('theta_perturbation', points)])
+                          point_data=[('theta_perturbation', points)],
+                          log_level='INFO')
 
 parameters = CompressibleParameters()
 diagnostics = Diagnostics(*fieldlist)
-diagnostic_fields = [CourantNumber()]
+g = parameters.g
+Tsurf = 300.
+
+diagnostic_fields = [CourantNumber(), Gradient("u"), Gradient("theta_perturbation"), RichardsonNumber("theta", g/Tsurf), Gradient("theta")]
 
 state = State(mesh, vertical_degree=1, horizontal_degree=1,
               family="CG",
@@ -104,19 +102,16 @@ ueqn = EulerPoincare(state, Vu)
 rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
 supg = True
 if supg:
-    thetaeqn = SUPGAdvection(state, Vt, supg_params={"dg_direction": "horizontal"}, equation_form="advective")
+    thetaeqn = SUPGAdvection(state, Vt, equation_form="advective")
 else:
-    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective")
+    thetaeqn = EmbeddedDGAdvection(state, Vt, equation_form="advective", options=EmbeddedDGOptions())
 advected_fields = []
 advected_fields.append(("u", ThetaMethod(state, u0, ueqn)))
 advected_fields.append(("rho", SSPRK3(state, rho0, rhoeqn)))
 advected_fields.append(("theta", SSPRK3(state, theta0, thetaeqn)))
 
 # Set up linear solver
-if hybridization:
-    linear_solver = HybridizedCompressibleSolver(state)
-else:
-    linear_solver = CompressibleSolver(state)
+linear_solver = CompressibleSolver(state)
 
 # Set up forcing
 compressible_forcing = CompressibleForcing(state)

@@ -1,7 +1,7 @@
 from gusto import *
-from firedrake import as_vector, Constant, PeriodicIntervalMesh, \
-    SpatialCoordinate, ExtrudedMesh, FunctionSpace, \
-    Function, conditional, sqrt
+from firedrake import (as_vector, Constant, PeriodicIntervalMesh,
+                       SpatialCoordinate, ExtrudedMesh, FunctionSpace,
+                       Function, conditional, sqrt)
 
 # This setup creates a sharp bubble of warm air in a vertical slice
 # This bubble is then advected by a prescribed advection scheme
@@ -40,7 +40,7 @@ def setup_recovered_space(dirname):
     # spaces
     Vpsi = FunctionSpace(mesh, "CG", 2)
     VDG0 = FunctionSpace(mesh, "DG", 0)
-    VDG1 = FunctionSpace(mesh, "DG", 1)
+    VDG1 = state.spaces("DG1")
     VCG1 = FunctionSpace(mesh, "CG", 1)
 
     # set up tracer field
@@ -68,11 +68,15 @@ def setup_recovered_space(dirname):
                       ('tracer', tracer0)])
 
     # set up advection schemes
-    tracereqn = EmbeddedDGAdvection(state, VDG0, equation_form="continuity", recovered_spaces=[VDG1, VCG1, VDG0])
+    recovered_opts = RecoveredOptions(embedding_space=VDG1,
+                                      recovered_space=VCG1,
+                                      broken_space=VDG0,
+                                      boundary_method=Boundary_Method.dynamics)
+    tracereqn = EmbeddedDGAdvection(state, VDG0, equation_form="continuity",
+                                    options=recovered_opts)
 
     # build advection dictionary
     advected_fields = []
-    advected_fields.append(('u', NoAdvection(state, u0, None)))
     advected_fields.append(('tracer', SSPRK3(state, tracer0, tracereqn)))
 
     # build time stepper

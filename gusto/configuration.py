@@ -1,12 +1,13 @@
 """
 Some simple tools for making model configuration nicer.
 """
+from abc import ABCMeta, abstractproperty
 import logging
 from logging import DEBUG, INFO, WARNING
 from firedrake import sqrt
 
 
-__all__ = ["WARNING", "INFO", "DEBUG", "TimesteppingParameters", "OutputParameters", "CompressibleParameters", "ShallowWaterParameters", "EadyParameters", "CompressibleEadyParameters", "logger"]
+__all__ = ["WARNING", "INFO", "DEBUG", "TimesteppingParameters", "OutputParameters", "CompressibleParameters", "ShallowWaterParameters", "EadyParameters", "CompressibleEadyParameters", "logger", "EmbeddedDGOptions", "RecoveredOptions"]
 
 logger = logging.getLogger("gusto")
 
@@ -56,11 +57,13 @@ class OutputParameters(Configuration):
     #: log_level for logger, can be DEBUG, INFO or WARNING. Takes
     #: default value "warning"
     log_level = WARNING
+    dump_vtus = True
     dumpfreq = 1
     dumplist = None
     dumplist_latlon = []
     dump_diagnostics = True
     checkpoint = True
+    chkptfreq = 1
     dirname = None
     #: Should the output fields be interpolated or projected to
     #: a linear space?  Default is interpolation.
@@ -133,3 +136,32 @@ class CompressibleEadyParameters(CompressibleParameters, EadyParameters):
     theta_surf = 300.
     dthetady = theta_surf/g*EadyParameters.dbdy
     Pi0 = 0.0
+
+
+class AdvectionOptions(Configuration, metaclass=ABCMeta):
+
+    @abstractproperty
+    def name(self):
+        pass
+
+
+class EmbeddedDGOptions(AdvectionOptions):
+
+    name = "embedded_dg"
+    embedding_space = None
+
+
+class RecoveredOptions(AdvectionOptions):
+
+    name = "recovered"
+    embedding_space = None
+    recovered_space = None
+    broken_space = None
+    boundary_method = None
+
+
+class SUPGOptions(AdvectionOptions):
+
+    name = "supg"
+    tau = None
+    default = 1/sqrt(15)

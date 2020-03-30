@@ -1,12 +1,12 @@
 from os import path
 from gusto import *
-from firedrake import PeriodicIntervalMesh, ExtrudedMesh, \
-    Constant, SpatialCoordinate, pi, Function, sqrt, conditional, cos
+from firedrake import (PeriodicIntervalMesh, ExtrudedMesh,
+                       Constant, SpatialCoordinate, pi, Function,
+                       sqrt, conditional, cos)
 from netCDF4 import Dataset
-import pytest
 
 
-def setup_tracer(dirname, hybridization):
+def setup_tracer(dirname):
 
     # declare grid shape, with length L and height H
     L = 1000.
@@ -80,7 +80,6 @@ def setup_tracer(dirname, hybridization):
     ueqn = EulerPoincare(state, Vu)
     rhoeqn = AdvectionEquation(state, Vr, equation_form="continuity")
     thetaeqn = SUPGAdvection(state, Vt,
-                             supg_params={"dg_direction": "horizontal"},
                              equation_form="advective")
 
     # build advection dictionary
@@ -91,10 +90,7 @@ def setup_tracer(dirname, hybridization):
     advected_fields.append(("tracer", SSPRK3(state, tracer0, thetaeqn)))
 
     # Set up linear solver
-    if hybridization:
-        linear_solver = HybridizedCompressibleSolver(state)
-    else:
-        linear_solver = CompressibleSolver(state)
+    linear_solver = CompressibleSolver(state)
 
     compressible_forcing = CompressibleForcing(state)
 
@@ -105,21 +101,17 @@ def setup_tracer(dirname, hybridization):
     return stepper, 100.0
 
 
-def run_tracer(dirname, hybridization):
+def run_tracer(dirname):
 
-    stepper, tmax = setup_tracer(dirname, hybridization)
+    stepper, tmax = setup_tracer(dirname)
     stepper.run(t=0, tmax=tmax)
 
 
-@pytest.mark.parametrize("hybridization", [True, False])
-def test_tracer_setup(tmpdir, hybridization):
+def test_tracer_setup(tmpdir):
 
-    if hybridization:
-        dirname = str(tmpdir) + "_hybridization"
-    else:
-        dirname = str(tmpdir)
+    dirname = str(tmpdir)
 
-    run_tracer(dirname, hybridization)
+    run_tracer(dirname)
     filename = path.join(dirname, "tracer/diagnostics.nc")
     data = Dataset(filename, "r")
 

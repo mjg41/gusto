@@ -2,7 +2,6 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 from pyop2.profiling import timed_stage
 from gusto.configuration import logger
 from gusto.linear_solvers import IncompressibleSolver
-from firedrake import DirichletBC
 
 __all__ = ["CrankNicolson", "AdvectionDiffusion"]
 
@@ -19,10 +18,12 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         pairs indictaing the fields to diffusion, and the
         :class:`~.Diffusion` to use.
     :arg physics_list: optional list of classes that implement `physics` schemes
+    :arg prescribed_fields: an order list of tuples, pairing a field name with a
+         function that returns the field as a function of time.
     """
 
     def __init__(self, state, advected_fields=None, diffused_fields=None,
-                 physics_list=None):
+                 physics_list=None, prescribed_fields=None):
 
         self.state = state
         if advected_fields is None:
@@ -37,6 +38,10 @@ class BaseTimestepper(object, metaclass=ABCMeta):
             self.physics_list = physics_list
         else:
             self.physics_list = []
+        if prescribed_fields is not None:
+            self.prescribed_fields = prescribed_fields
+        else:
+            self.prescribed_fields = []
 
     @abstractproperty
     def passive_advection(self):
@@ -49,23 +54,23 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         """
         unp1 = self.state.xnp1.split()[0]
 
-        if unp1.function_space().extruded:
-            M = unp1.function_space()
-            bcs = [DirichletBC(M, 0.0, "bottom"),
-                   DirichletBC(M, 0.0, "top")]
+        bcs = self.state.bcs
 
-            for bc in bcs:
-                bc.apply(unp1)
+        for bc in bcs:
+            bc.apply(unp1)
 
-    def setup_timeloop(self, t, tmax, pickup):
+    def setup_timeloop(self, state, t, tmax, pickup):
         """
         Setup the timeloop by setting up diagnostics, dumping the fields and
         picking up from a previous run, if required
         """
-        self.state.setup_diagnostics()
+        if pickup:
+            t = state.pickup_from_checkpoint()
+
+        state.setup_diagnostics()
+
         with timed_stage("Dump output"):
-            self.state.setup_dump(tmax, pickup)
-            t = self.state.dump(t, pickup)
+            state.setup_dump(t, tmax, pickup)
         return t
 
     @abstractmethod
@@ -82,9 +87,10 @@ class BaseTimestepper(object, metaclass=ABCMeta):
         physics updates are applied (if required).
         """
 
-        t = self.setup_timeloop(t, tmax, pickup)
-
         state = self.state
+
+        t = self.setup_timeloop(state, t, tmax, pickup)
+
         dt = state.timestepping.dt
 
         while t < tmax - 0.5*dt:
@@ -94,6 +100,9 @@ class BaseTimestepper(object, metaclass=ABCMeta):
             state.t.assign(t)
 
             state.xnp1.assign(state.xn)
+
+            for name, evaluation in self.prescribed_fields:
+                state.fields(name).project(evaluation(t))
 
             self.semi_implicit_step()
 
@@ -117,7 +126,7 @@ class BaseTimestepper(object, metaclass=ABCMeta):
                     physics.apply()
 
             with timed_stage("Dump output"):
-                state.dump(t, pickup=False)
+                state.dump(t)
 
         if state.output.checkpoint:
             state.chkpt.close()
@@ -140,12 +149,14 @@ class CrankNicolson(BaseTimestepper):
         pairs indictaing the fields to diffusion, and the
         :class:`~.Diffusion` to use.
     :arg physics_list: optional list of classes that implement `physics` schemes
+    :arg prescribed_fields: an order list of tuples, pairing a field name with a
+         function that returns the field as a function of time.
     """
 
     def __init__(self, state, advected_fields, linear_solver, forcing,
-                 diffused_fields=None, physics_list=None):
+                 diffused_fields=None, physics_list=None, prescribed_fields=None):
 
-        super().__init__(state, advected_fields, diffused_fields, physics_list)
+        super().__init__(state, advected_fields, diffused_fields, physics_list, prescribed_fields)
         self.linear_solver = linear_solver
         self.forcing = forcing
 
