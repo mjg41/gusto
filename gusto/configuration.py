@@ -158,6 +158,7 @@ class RecoveredOptions(AdvectionOptions):
     embedding_space = None
     recovered_space = None
     broken_space = None
+    injected_space = None
     boundary_method = None
 
 
